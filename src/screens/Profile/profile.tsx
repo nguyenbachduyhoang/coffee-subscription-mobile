@@ -11,6 +11,9 @@ import {
 import { User as UserIcon, LogOut, ShoppingBag, Settings, CreditCard as Edit3 } from 'lucide-react-native';
 import { Colors, Shadows } from '../../constants/colors';
 import { useAuth } from '../../hooks/useAuth';
+import { getProfile } from '../../services/authApi';
+import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStorage } from '../../hooks/useStorage';
 import { AuthModal } from '../../components/AuthModal';
 import { Purchase } from '../../types';
@@ -25,17 +28,40 @@ type ProfileStackParamList = {
 };
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
+  const [user, setUser] = useState<any>(null);
   const { getPurchases } = useStorage();
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [reloadProfile, setReloadProfile] = useState(false);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const navigation = useNavigation<StackNavigationProp<ProfileStackParamList>>();
 
   useEffect(() => {
-    if (user) {
-      loadPurchases();
-    }
-  }, [user]);
+    const fetchProfile = async () => {
+      const token = await AsyncStorage.getItem('token');
+      console.log('Token from AsyncStorage:', token);
+      if (token) {
+        try {
+          const profile = await getProfile(token);
+          console.log('Profile from API:', profile);
+          setUser(profile);
+          // Lưu lại user vào SecureStore để QRCode lấy đúng số điện thoại
+          try {
+            await SecureStore.setItemAsync('user', JSON.stringify(profile));
+          } catch (e) {
+            console.log('Error saving user to SecureStore:', e);
+          }
+          loadPurchases();
+        } catch (error) {
+          console.log('Error fetching profile:', error);
+          setUser(null);
+        }
+      } else {
+        setUser(null);
+      }
+    };
+    fetchProfile();
+  }, [reloadProfile]);
 
   const loadPurchases = async () => {
     const userPurchases = await getPurchases();
@@ -48,9 +74,17 @@ export default function ProfileScreen() {
       'Bạn có chắc chắn muốn đăng xuất?',
       [
         { text: 'Hủy', style: 'cancel' },
-        { text: 'Đăng Xuất', onPress: logout, style: 'destructive' },
+        { text: 'Đăng Xuất', onPress: async () => {
+            await AsyncStorage.removeItem('token');
+            setReloadProfile(r => !r);
+            if (logout) logout();
+          }, style: 'destructive' },
       ]
     );
+  };
+
+  const handleRemoveToken = async () => {
+    await AsyncStorage.removeItem('token');
   };
 
   if (!user) {
@@ -73,7 +107,10 @@ export default function ProfileScreen() {
 
         <AuthModal
           visible={showAuthModal}
-          onClose={() => setShowAuthModal(false)}
+          onClose={() => {
+            setShowAuthModal(false);
+            setReloadProfile(r => !r);
+          }}
         />
       </View>
     );

@@ -49,6 +49,7 @@ export const useAuthLogic = () => {
         id: Date.now().toString(),
         email,
         name: email.split('@')[0],
+        phone: '',
       };
       await SecureStore.setItemAsync('user', JSON.stringify(userData));
       setUser(userData);
@@ -66,6 +67,7 @@ export const useAuthLogic = () => {
         id: Date.now().toString(),
         email,
         name,
+        phone: '',
       };
       await SecureStore.setItemAsync('user', JSON.stringify(userData));
       setUser(userData);

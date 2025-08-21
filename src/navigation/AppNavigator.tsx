@@ -3,6 +3,9 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Chrome as HomeIcon, Package as PackageIcon, User as UserIcon } from 'lucide-react-native';
+import { Bell as BellIcon } from 'lucide-react-native';
+import { QrCode as QrCodeIcon } from 'lucide-react-native';
+import { View } from 'react-native';
 import HomeScreen from '../screens/Home';
 import PackagesScreen from '../screens/Packages/packages';
 import ProfileScreen from '../screens/Profile/profile';
@@ -49,6 +52,40 @@ function MainTabs() {
         options={{
           title: 'Gói Dịch Vụ',
           tabBarIcon: ({ size, color }) => <PackageIcon size={size} color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="QRCode"
+        component={require('../screens/QRCode/QRCode').default}
+        options={{
+          title: '',
+          tabBarIcon: ({ focused }) => (
+            <View style={{
+              backgroundColor: focused ? '#4E342E' : '#fff',
+              borderRadius: 32,
+              padding: 8,
+              marginTop: -24,
+              borderWidth: 3,
+              borderColor: '#4E342E',
+              shadowColor: Colors.primary,
+              shadowOpacity: focused ? 0.2 : 0.08,
+              shadowRadius: focused ? 8 : 4,
+              elevation: focused ? 8 : 2,
+            }}>
+              <QrCodeIcon size={48} color={focused ? '#fff' : '#4E342E'} />
+            </View>
+          ),
+          tabBarLabel: () => null,
+        }}
+      />
+      <Tab.Screen
+        name="Notifications"
+        component={require('../screens/Notifications/NotificationsScreen').default}
+        options={{
+          title: 'Thông báo',
+          tabBarIcon: ({ size, color }) => (
+            <BellIcon size={size} color={color} />
+          ),
         }}
       />
       <Tab.Screen
