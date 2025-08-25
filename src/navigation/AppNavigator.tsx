@@ -11,6 +11,7 @@ import PackagesScreen from '../screens/Packages/packages';
 import ProfileScreen from '../screens/Profile/profile';
 import BenefitsScreen from '../screens/Benefits/benefits';
 import ContactScreen from '../screens/Contact/contact';
+import HistoryScreen from '../screens/History/HistoryScreen';
 import { Colors } from '../constants/colors';
 
 const Tab = createBottomTabNavigator();
@@ -107,6 +108,9 @@ export default function AppNavigator() {
         <Stack.Screen name="MainTabs" component={MainTabs} />
         <Stack.Screen name="Benefits" component={BenefitsScreen} />
         <Stack.Screen name="Contact" component={ContactScreen} />
+        <Stack.Screen name="MenuScreen" component={require('../screens/Menu/MenuScreen').default} />
+        <Stack.Screen name="PaymentScreen" component={require('../screens/Payment/PaymentScreen').default} />
+        <Stack.Screen name="HistoryScreen" component={HistoryScreen} />
         {/* Thêm các màn hình chi tiết khác ở đây nếu cần */}
       </Stack.Navigator>
     </NavigationContainer>

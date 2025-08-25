@@ -3,6 +3,8 @@ export interface User {
 	email: string;
 	name: string;
 	phone: string;
+		role?: string; // 'customer' | 'staff' | ...
+		token?: string;
 }
 
 export interface Package {
@@ -14,6 +16,16 @@ export interface Package {
 	image: string;
 	benefits: string[];
 	popular?: boolean;
+	
+	// Additional properties for API compatibility
+	imageUrl?: string;
+	durationDays?: number;
+	dailyQuota?: number;
+	description?: string;
+	planId?: number;
+	productName?: string;
+	maxPerVisit?: number;
+	active?: boolean;
 }
 
 export interface Purchase {
