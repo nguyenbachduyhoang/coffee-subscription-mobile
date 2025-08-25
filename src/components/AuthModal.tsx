@@ -20,8 +20,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { X } from 'lucide-react-native';
+import { Eye, EyeOff } from 'lucide-react-native';
 import { Colors, Shadows } from '../constants/colors';
 import { login as apiLogin, register as apiRegister } from '../services/authApi';
+import { AuthContext } from '../hooks/useAuth';
 import { verifyEmail } from '../services/authApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -31,6 +33,10 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
+  const authContext = React.useContext(AuthContext);
+  const setUser = authContext?.setUser;
+  const { decodeJwt } = require('../hooks/jwtDecode');
+  const [loginType, setLoginType] = useState<'customer' | 'staff'>('customer');
   const [showVerify, setShowVerify] = useState(false);
   const [verifyToken, setVerifyToken] = useState('');
   const [verifyLoading, setVerifyLoading] = useState(false);
@@ -40,6 +46,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   
   const translateY = useSharedValue(300);
   const opacity = useSharedValue(0);
@@ -64,7 +71,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
   }));
 
   const handleSubmit = async () => {
-    if (!email || !password || (!isLogin && !name)) {
+  if (!email || !password || (!isLogin && !name)) {
       Alert.alert('Lỗi', 'Vui lòng điền đầy đủ thông tin');
       return;
     }
@@ -84,10 +91,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
     try {
       let result;
       if (isLogin) {
-        result = await apiLogin(email, password);
-        console.log('Login result (token):', result);
+        try {
+          if (loginType === 'staff') {
+            result = await apiLogin.staff(email, password);
+          } else {
+            result = await apiLogin.customer(email, password);
+          }
+        } catch (err) {
+          if ((err as any)?.response?.status === 401 || (err as any)?.response?.status === 400) {
+            Alert.alert('Lỗi', 'Email hoặc mật khẩu không đúng!');
+            setIsLoading(false);
+            return;
+          } else {
+            Alert.alert('Lỗi', 'Có lỗi xảy ra. Vui lòng thử lại.');
+            setIsLoading(false);
+            return;
+          }
+        }
         if (result) {
           await AsyncStorage.setItem('token', result);
+          // Decode token lấy thông tin user
+          const decoded = decodeJwt(result);
+          const userData = {
+            id: decoded.sub || email,
+            email,
+            name: email.split('@')[0],
+            phone: '',
+            role: decoded.role || (loginType === 'staff' ? 'staff' : 'customer'),
+            token: result,
+          };
+          if (setUser) setUser(userData);
         }
       } else {
         result = await apiRegister({ name, email, password, phone: '', address: '' });
@@ -196,6 +229,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                     <Text style={styles.title}>
                       {isLogin ? 'Đăng Nhập' : 'Đăng Ký'}
                     </Text>
+                    {isLogin && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 16 }}>
+                        <TouchableOpacity
+                          style={{
+                            paddingVertical: 6,
+                            paddingHorizontal: 18,
+                            borderRadius: 20,
+                            backgroundColor: loginType === 'customer' ? Colors.primary : Colors.gray[200],
+                            marginRight: 8,
+                          }}
+                          onPress={() => setLoginType('customer')}
+                        >
+                          <Text style={{ color: loginType === 'customer' ? Colors.white : Colors.gray[700], fontWeight: 'bold' }}>Khách hàng</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{
+                            paddingVertical: 6,
+                            paddingHorizontal: 18,
+                            borderRadius: 20,
+                            backgroundColor: loginType === 'staff' ? Colors.primary : Colors.gray[200],
+                          }}
+                          onPress={() => setLoginType('staff')}
+                        >
+                          <Text style={{ color: loginType === 'staff' ? Colors.white : Colors.gray[700], fontWeight: 'bold' }}>Nhân viên</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                     <View style={styles.form}>
                       {!isLogin && (
                         <TextInput
@@ -215,14 +275,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ visible, onClose }) => {
                         autoCapitalize="none"
                         placeholderTextColor={Colors.gray[400]}
                       />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Mật khẩu"
-                        value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry
-                        placeholderTextColor={Colors.gray[400]}
-                      />
+                      <View style={{ position: 'relative' }}>
+                        <TextInput
+                          style={styles.input}
+                          placeholder="Mật khẩu"
+                          value={password}
+                          onChangeText={setPassword}
+                          secureTextEntry={!showPassword}
+                          placeholderTextColor={Colors.gray[400]}
+                        />
+                        <TouchableOpacity
+                          style={{ position: 'absolute', right: 16, top: 18 }}
+                          onPress={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? (
+                            <EyeOff size={22} color={Colors.gray[500]} />
+                          ) : (
+                            <Eye size={22} color={Colors.gray[500]} />
+                          )}
+                        </TouchableOpacity>
+                      </View>
                       <TouchableOpacity
                         style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
                         onPress={handleSubmit}

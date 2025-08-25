@@ -1,22 +1,18 @@
 import React, { useState } from 'react';
-// Màn hình này được sử dụng cho tab "Trang Chủ" (index) trong thanh điều hướng chính.
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  Dimensions,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Image, Dimensions, Modal, Alert
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Coffee, ArrowRight } from 'lucide-react-native';
 import { Colors, Shadows } from '../../constants/colors';
-import { PACKAGES } from '../../constants/data';
+import { getAllPlans, Plan } from '../../services/packageApi';
+import { createSubscriptionOrder, SubscriptionOrderResponse } from '../../services/paymentApi';
+import { productsApi } from '../../services/api';
+import ProductCard from '../../components/ProductCard';
 import { PackageCard } from '../../components/PackageCard';
 import { AuthModal } from '../../components/AuthModal';
 import { useAuth } from '../../hooks/useAuth';
-import { router } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
 import { Package } from '../../types';
 
 const { width } = Dimensions.get('window');
@@ -24,19 +20,57 @@ const { width } = Dimensions.get('window');
 export default function HomeScreen() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const { user } = useAuth();
+  const navigation = useNavigation();
 
-  const handlePackageSelect = (pkg: Package) => {
+  const [featuredPackages, setFeaturedPackages] = useState<Plan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<any[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+
+  // Thêm state cho modal thanh toán
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [paymentData, setPaymentData] = useState<SubscriptionOrderResponse | null>(null);
+  const [orderLoading, setOrderLoading] = useState(false);
+
+  const handlePackageSelect = async (pkg: Package) => {
     if (!user) {
       setShowAuthModal(true);
       return;
     }
-    router.push({
-      pathname: '/payment',
-      params: { packageId: pkg.id }
-    });
+    try {
+      setOrderLoading(true);
+      // Gọi API tạo đơn hàng/subscription
+      const paymentInfo = await createSubscriptionOrder(Number(pkg.id), user.token!);
+      setPaymentData(paymentInfo);
+      setPaymentModalVisible(true);
+    } catch (e) {
+      Alert.alert('Lỗi', 'Không thể tạo đơn hàng');
+    } finally {
+      setOrderLoading(false);
+    }
   };
 
-  const featuredPackages = PACKAGES.slice(0, 2);
+  React.useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch plans
+        const plansData = await getAllPlans();
+        setFeaturedPackages(plansData.slice(0, 2));
+        setLoading(false);
+        
+        // Fetch products
+        const productsData = await productsApi.getAllProducts();
+        setProducts(productsData.slice(0, 4));
+        setProductsLoading(false);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setLoading(false);
+        setProductsLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, []);
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -56,7 +90,7 @@ export default function HomeScreen() {
           
           <TouchableOpacity
             style={styles.ctaButton}
-            onPress={() => !user ? setShowAuthModal(true) : router.push('/packages')}
+            onPress={() => !user ? setShowAuthModal(true) : (navigation as any).navigate('Packages')}
           >
             <Text style={styles.ctaButtonText}>Đăng Ký Ngay</Text>
             <ArrowRight size={20} color={Colors.primary} />
@@ -83,18 +117,58 @@ export default function HomeScreen() {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Gói Nổi Bật</Text>
-          <TouchableOpacity onPress={() => router.push('/packages')}>
+          <TouchableOpacity onPress={() => (navigation as any).navigate('Packages')}>
             <Text style={styles.viewAllText}>Xem tất cả</Text>
           </TouchableOpacity>
         </View>
-        
-        {featuredPackages.map((pkg) => (
-          <PackageCard
-            key={pkg.id}
-            package={pkg}
-            onSelect={handlePackageSelect}
-          />
-        ))}
+        {loading ? (
+          <Text style={{ textAlign: 'center', color: Colors.primary, marginVertical: 16 }}>Đang tải...</Text>
+        ) : (
+          featuredPackages.map((plan) => (
+            <PackageCard
+              key={plan.planId}
+              package={{
+                id: String(plan.planId),
+                name: plan.name,
+                price: plan.price,
+                image: plan.imageUrl,
+                cupsPerDay: plan.dailyQuota,
+                duration: String(plan.durationDays),
+                benefits: [],
+                popular: false,
+              }}
+              onSelect={() => handlePackageSelect({
+                id: String(plan.planId),
+                name: plan.name,
+                price: plan.price,
+                image: plan.imageUrl,
+                cupsPerDay: plan.dailyQuota,
+                duration: String(plan.durationDays),
+                benefits: [],
+                popular: false,
+              })}
+            />
+          ))
+        )}
+      </View>
+
+      {/* Menu Preview Section */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Menu Sản Phẩm</Text>
+          <TouchableOpacity onPress={() => (navigation as any).navigate('MenuScreen')}>
+            <Text style={styles.viewAllText}>Xem tất cả sản phẩm</Text>
+          </TouchableOpacity>
+        </View>
+        {productsLoading ? (
+          <Text style={{ textAlign: 'center', color: Colors.primary, marginVertical: 16 }}>Đang tải...</Text>
+        ) : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            {products.map((product) => (
+              <ProductCard key={product.productId} product={product} />
+            ))}
+          </View>
+        )}
       </View>
 
       {/* Stats Section */}
@@ -123,6 +197,28 @@ export default function HomeScreen() {
           </View>
         </LinearGradient>
       </View>
+
+      {/* Modal thanh toán QR */}
+      <Modal visible={paymentModalVisible} transparent animationType="slide">
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Quét mã QR để thanh toán</Text>
+            {paymentData && (
+              <>
+                <Image source={{ uri: paymentData.qrUrl }} style={{ width: 200, height: 200, alignSelf: 'center', marginBottom: 16 }} />
+                <Text>Ngân hàng: <Text style={{ fontWeight: 'bold' }}>{paymentData.bankName}</Text></Text>
+                <Text>Số tài khoản: <Text style={{ fontWeight: 'bold' }}>{paymentData.bankAccount}</Text></Text>
+                <Text>Chủ tài khoản: <Text style={{ fontWeight: 'bold' }}>{paymentData.accountHolder}</Text></Text>
+                <Text>Nội dung chuyển khoản: <Text style={{ fontWeight: 'bold' }}>{paymentData.transferContent}</Text></Text>
+                <Text>Số tiền: <Text style={{ fontWeight: 'bold' }}>{paymentData.amount?.toLocaleString()} đ</Text></Text>
+              </>
+            )}
+            <TouchableOpacity onPress={() => setPaymentModalVisible(false)} style={styles.closeBtn}>
+              <Text style={{ color: Colors.primary, fontWeight: 'bold', fontSize: 16 }}>Đóng</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <AuthModal
         visible={showAuthModal}
@@ -242,5 +338,32 @@ const styles = StyleSheet.create({
     color: Colors.gray[700],
     textAlign: 'center',
     marginTop: 4,
+  },
+  modalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '90%',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.primary,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  closeBtn: {
+    marginTop: 24,
+    backgroundColor: Colors.gray[100],
+    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
   },
 });

@@ -24,6 +24,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 type ProfileStackParamList = {
   Benefits: undefined;
   Contact: undefined;
+  HistoryScreen: undefined;
   // Add other routes if needed
 };
 
@@ -142,51 +143,17 @@ export default function ProfileScreen() {
 
       {/* Purchase History */}
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
+        <TouchableOpacity
+          style={styles.actionButton} // dùng style giống các nút bên dưới
+          onPress={() => navigation.navigate('HistoryScreen')}
+          activeOpacity={0.7}
+        >
           <ShoppingBag size={20} color={Colors.primary} />
-          <Text style={styles.sectionTitle}>Lịch Sử Mua Hàng</Text>
-        </View>
-        
-        {purchases.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Chưa có giao dịch nào</Text>
-          </View>
-        ) : (
-          <View style={styles.purchasesList}>
-            {purchases.map((purchase) => (
-              <View key={purchase.id} style={styles.purchaseCard}>
-                <View style={styles.purchaseHeader}>
-                  <Text style={styles.purchaseName}>{purchase.packageName}</Text>
-                  <Text style={styles.purchasePrice}>
-                    {purchase.price.toLocaleString('vi-VN')}₫
-                  </Text>
-                </View>
-                
-                <View style={styles.purchaseDetails}>
-                  <Text style={styles.purchaseMethod}>
-                    Phương thức: {purchase.paymentMethod === 'momo' ? 'MoMo' : 'COD'}
-                  </Text>
-                  <Text style={styles.purchaseDate}>
-                    {new Date(purchase.date).toLocaleDateString('vi-VN')}
-                  </Text>
-                </View>
-                
-                <View style={[
-                  styles.statusBadge,
-                  purchase.status === 'completed' && styles.statusCompleted
-                ]}>
-                  <Text style={[
-                    styles.statusText,
-                    purchase.status === 'completed' && styles.statusTextCompleted
-                  ]}>
-                    {purchase.status === 'completed' ? 'Hoàn thành' : 'Đang xử lý'}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
+          <Text style={styles.actionText}>Lịch Sử Mua Hàng</Text>
+        </TouchableOpacity>
       </View>
+      
+    
 
       {/* Actions */}
       <View style={styles.actionsSection}>
@@ -298,6 +265,7 @@ const styles = StyleSheet.create({
   },
   section: {
     padding: 20,
+    gap: 12,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -381,7 +349,7 @@ const styles = StyleSheet.create({
   },
   actionsSection: {
     padding: 20,
-    gap: 12,
+    gap: 12, // khoảng cách đều giữa các card
     paddingBottom: 100,
   },
   actionButton: {
@@ -391,12 +359,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     ...Shadows.small,
-  },
-  actionText: {
-    fontSize: 16,
-    fontFamily: 'Poppins-Medium',
-    color: Colors.primary,
-    marginLeft: 12,
+    // Xóa marginBottom nếu có
   },
   logoutButton: {
     flexDirection: 'row',
@@ -405,6 +368,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     ...Shadows.small,
+    // Xóa marginBottom nếu có
+  },
+  actionText: {
+    fontSize: 16,
+    fontFamily: 'Poppins-Medium',
+    color: Colors.primary,
+    marginLeft: 12,
   },
   logoutText: {
     fontSize: 16,

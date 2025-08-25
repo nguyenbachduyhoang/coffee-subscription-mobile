@@ -41,7 +41,7 @@ const QRCodeScreen: React.FC = () => {
       {/* Header BrewPass icon and text, moved down and larger */}
       <View style={styles.headerIconWrap}>
         <Coffee size={32} color="#B08968" style={{ marginRight: 10 }} />
-        <Text style={styles.headerTitle}>BrewPass</Text>
+        <Text style={styles.headerTitle}>Thẻ Thành Viên</Text>
       </View>
 
       <View style={styles.centerContent}>
@@ -52,8 +52,8 @@ const QRCodeScreen: React.FC = () => {
           end={{ x: 0.0, y: 0.0 }}
           style={[styles.titleCard, { width: cardWidth }]}
         >
-          <Text style={styles.cardTitle}>Premium Daily Brew</Text>
-          <Text style={styles.plainRemaining}>Remaining: 15 Drinks</Text>
+          <Text style={styles.cardTitle}>Gói Cà Phê Premium</Text>
+          <Text style={styles.plainRemaining}>Còn lại: 15 ly</Text>
         </LinearGradient>
 
         {/* QR block: moved down from title card */}
@@ -81,13 +81,13 @@ const QRCodeScreen: React.FC = () => {
                 </View>
               ) : (
                 <Text style={{ color: '#B08968', fontWeight: '700', fontSize: 16 }}>
-                  Không có số điện thoại
+                  Đăng nhập để sử dụng!
                 </Text>
               )}
             </View>
           </View>
 
-          <Text style={styles.qrLabel}>QR Code</Text>
+          <Text style={styles.qrLabel}>Mã QR</Text>
         </View>
 
         {/* Action buttons row */}
@@ -96,21 +96,21 @@ const QRCodeScreen: React.FC = () => {
             <TouchableOpacity style={[styles.actionButton, styles.actionButtonLeft]}>
               <Calendar color="#2AB27B" size={24} /> 
             </TouchableOpacity>
-            <Text style={[styles.actionText, styles.actionTextLeft]}>View History</Text>
+            <Text style={[styles.actionText, styles.actionTextLeft]}>Lịch sử sử dụng</Text>
           </View>
 
           <View style={styles.actionButtonWrap}>
             <TouchableOpacity style={[styles.actionButton, styles.actionButtonCenter]}>
               <Coffee color="#B08968" size={24} />
             </TouchableOpacity>
-            <Text style={[styles.actionText, styles.actionTextCenter]}>Pre-Order Drinks</Text>
+            <Text style={[styles.actionText, styles.actionTextCenter]}>Đặt trước đồ uống</Text>
           </View>
 
           <View style={styles.actionButtonWrap}>
             <TouchableOpacity style={[styles.actionButton, styles.actionButtonRight]}>
               <CreditCard color="#4E342E" size={24} />
             </TouchableOpacity>
-            <Text style={[styles.actionText, styles.actionTextRight]}>Manage Payment</Text>
+            <Text style={[styles.actionText, styles.actionTextRight]}>Quản lý thanh toán</Text>
           </View>
         </View>
       </View>

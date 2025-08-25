@@ -1,14 +1,18 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { User } from '../types';
+import { authApi } from '../services/api';
+import { decodeJwt } from './jwtDecode';
 
-interface AuthContextType {
+export interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
+  loginStaff: (email: string, password: string) => Promise<boolean>;
   register: (email: string, password: string, name: string) => Promise<boolean>;
   logout: () => Promise<void>;
   updateProfile: (user: Partial<User>) => Promise<void>;
+  setUser: React.Dispatch<React.SetStateAction<User | null>>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -33,7 +37,9 @@ export const useAuthLogic = () => {
     try {
       const userData = await SecureStore.getItemAsync('user');
       if (userData) {
-        setUser(JSON.parse(userData));
+        const parsedUser = JSON.parse(userData);
+        console.log('Loaded user from storage:', parsedUser);
+        setUser(parsedUser);
       }
     } catch (error) {
       console.error('Error loading user:', error);
@@ -44,36 +50,125 @@ export const useAuthLogic = () => {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      // Simulate API call
+      // Gọi API đăng nhập thực tế cho customer
+      const token = await authApi.loginCustomer(email, password);
+      
+      if (!token) {
+        throw new Error('Token không được trả về từ server');
+      }
+
+      const decoded = decodeJwt(token) as { sub?: string; name?: string; phone?: string; role?: string };
+
       const userData: User = {
-        id: Date.now().toString(),
+        id: decoded.sub || Date.now().toString(),
         email,
-        name: email.split('@')[0],
-        phone: '',
+        name: decoded.name || email.split('@')[0],
+        phone: decoded.phone || '',
+        role: decoded.role || 'customer',
+        token,
       };
+
       await SecureStore.setItemAsync('user', JSON.stringify(userData));
       setUser(userData);
+      console.log('Customer login successful:', userData);
       return true;
-    } catch (error) {
-      console.error('Login error:', error);
+    } catch (error: any) {
+      console.error('Customer login error:', error.response?.data || error.message);
+      
+      // Fallback cho development/testing
+      if (__DEV__) {
+        console.log('Using fallback login for development');
+        const userData: User = {
+          id: Date.now().toString(),
+          email,
+          name: email.split('@')[0],
+          phone: '',
+          role: 'customer',
+          token: 'dev-token-' + Date.now(),
+        };
+        
+        await SecureStore.setItemAsync('user', JSON.stringify(userData));
+        setUser(userData);
+        return true;
+      }
+      
+      return false;
+    }
+  };
+
+  const loginStaff = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const token = await authApi.loginStaff(email, password);
+      
+      if (!token) {
+        throw new Error('Token không được trả về từ server');
+      }
+
+      const decoded = decodeJwt(token) as { sub?: string; name?: string; phone?: string; role?: string };
+      
+      const userData: User = {
+        id: decoded.sub || email,
+        email,
+        name: decoded.name || email.split('@')[0],
+        phone: decoded.phone || '',
+        role: decoded.role || 'staff',
+        token,
+      };
+
+      await SecureStore.setItemAsync('user', JSON.stringify(userData));
+      setUser(userData);
+      console.log('Staff login successful:', userData);
+      return true;
+    } catch (error: any) {
+      console.error('Staff login error:', error.response?.data || error.message);
       return false;
     }
   };
 
   const register = async (email: string, password: string, name: string): Promise<boolean> => {
     try {
-      // Simulate API call
-      const userData: User = {
-        id: Date.now().toString(),
+      // Gọi API đăng ký thực tế
+      const result = await authApi.register({
         email,
+        password,
         name,
         phone: '',
-      };
-      await SecureStore.setItemAsync('user', JSON.stringify(userData));
-      setUser(userData);
+        address: ''
+      });
+
+      const token = result.token || result.access_token;
+      
+      if (token) {
+        const decoded = decodeJwt(token) as { sub?: string; name?: string; phone?: string; role?: string };
+        const userData: User = {
+          id: decoded.sub || Date.now().toString(),
+          email,
+          name,
+          phone: '',
+          role: 'customer',
+          token,
+        };
+        
+        await SecureStore.setItemAsync('user', JSON.stringify(userData));
+        setUser(userData);
+      } else {
+        // Nếu không có token (có thể cần verify email trước)
+        const userData: User = {
+          id: Date.now().toString(),
+          email,
+          name,
+          phone: '',
+          role: 'customer',
+        };
+        
+        await SecureStore.setItemAsync('user', JSON.stringify(userData));
+        setUser(userData);
+      }
+      
+      console.log('Registration successful');
       return true;
-    } catch (error) {
-      console.error('Register error:', error);
+    } catch (error: any) {
+      console.error('Register error:', error.response?.data || error.message);
       return false;
     }
   };
@@ -82,6 +177,7 @@ export const useAuthLogic = () => {
     try {
       await SecureStore.deleteItemAsync('user');
       setUser(null);
+      console.log('User logged out');
     } catch (error) {
       console.error('Logout error:', error);
     }
@@ -90,9 +186,11 @@ export const useAuthLogic = () => {
   const updateProfile = async (updatedUser: Partial<User>): Promise<void> => {
     try {
       if (!user) return;
+
       const newUser = { ...user, ...updatedUser };
       await SecureStore.setItemAsync('user', JSON.stringify(newUser));
       setUser(newUser);
+      console.log('Profile updated:', newUser);
     } catch (error) {
       console.error('Update profile error:', error);
     }
@@ -102,9 +200,11 @@ export const useAuthLogic = () => {
     user,
     isLoading,
     login,
+    loginStaff,
     register,
     logout,
     updateProfile,
+    setUser,
   };
 };
 

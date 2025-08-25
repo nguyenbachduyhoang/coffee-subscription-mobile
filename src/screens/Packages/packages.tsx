@@ -7,37 +7,54 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { Filter } from 'lucide-react-native';
 import { Colors } from '../../constants/colors';
-import { PACKAGES } from '../../constants/data';
+// import { PACKAGES } from '../../constants/data';
+import { getAllPlans, Plan } from '../../services/packageApi';
 import { PackageCard } from '../../components/PackageCard';
 import { AuthModal } from '../../components/AuthModal';
 import { useAuth } from '../../hooks/useAuth';
-import { router } from 'expo-router';
-import { Package } from '../../types';
 
 function PackagesScreen() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('all');
   const { user } = useAuth();
+  const navigation = useNavigation();
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handlePackageSelect = (pkg: Package) => {
+  React.useEffect(() => {
+    getAllPlans()
+      .then(data => {
+        setPlans(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handlePackageSelect = (plan: Plan) => {
     if (!user) {
       setShowAuthModal(true);
       return;
     }
-    router.push({
-      pathname: '/payment',
-      params: { packageId: pkg.id }
-    });
+  (navigation as any).navigate('PaymentScreen', { planId: plan.planId });
   };
 
-  const filteredPackages = PACKAGES.filter(pkg => {
+  const filteredPlans = plans.filter(plan => {
     if (selectedFilter === 'all') return true;
-    if (selectedFilter === 'basic') return pkg.cupsPerDay === 1;
-    if (selectedFilter === 'premium') return pkg.cupsPerDay >= 3;
+    if (selectedFilter === 'basic') return plan.dailyQuota === 1;
+    if (selectedFilter === 'premium') return plan.dailyQuota >= 3;
     return true;
   });
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ textAlign: 'center', marginTop: 40, color: Colors.primary }}>Đang tải gói dịch vụ...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -48,6 +65,7 @@ function PackagesScreen() {
         </TouchableOpacity>
       </View>
 
+
       {/* Filter Tabs */}
       <ScrollView 
         horizontal 
@@ -55,7 +73,7 @@ function PackagesScreen() {
         style={styles.filterContainer}
         contentContainerStyle={styles.filterContent}
       >
-        {[
+        {[ 
           { key: 'all', label: 'Tất cả' },
           { key: 'basic', label: 'Cơ bản' },
           { key: 'premium', label: 'Premium' },
@@ -78,7 +96,7 @@ function PackagesScreen() {
         ))}
       </ScrollView>
 
-      {/* Packages List */}
+      {/* Plans List */}
       <ScrollView 
         style={styles.packagesContainer}
         showsVerticalScrollIndicator={false}
@@ -87,12 +105,20 @@ function PackagesScreen() {
         <Text style={styles.sectionSubtitle}>
           Chọn gói phù hợp với nhu cầu của bạn
         </Text>
-        
-        {filteredPackages.map((pkg) => (
+        {filteredPlans.map((plan) => (
           <PackageCard
-            key={pkg.id}
-            package={pkg}
-            onSelect={handlePackageSelect}
+            key={plan.planId}
+            package={{
+              id: String(plan.planId),
+              name: plan.name,
+              price: plan.price,
+              image: plan.imageUrl,
+              cupsPerDay: plan.dailyQuota,
+              duration: String(plan.durationDays),
+              benefits: [], // API không có, truyền mảng rỗng
+              popular: false, // API không có, truyền false
+            }}
+            onSelect={() => handlePackageSelect(plan)}
           />
         ))}
       </ScrollView>

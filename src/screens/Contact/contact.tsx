@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { MapPin, Phone, Mail, Clock } from 'lucide-react-native';
 import { Colors, Shadows } from '../../constants/colors';
-import { useStorage } from '../../hooks/useStorage';
+import { contactApi } from '../../services/api';
 import { ContactMessage } from '../../types';
 
 export default function ContactScreen() {
@@ -20,8 +20,6 @@ export default function ContactScreen() {
   const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  
-  const { saveContactMessage } = useStorage();
 
   const handleSubmit = async () => {
     if (!name || !email || !phone || !message) {
@@ -37,16 +35,12 @@ export default function ContactScreen() {
     setIsLoading(true);
 
     try {
-      const contactMessage: ContactMessage = {
-        id: Date.now().toString(),
+      await contactApi.sendMessage({
         name,
         email,
         phone,
         message,
-        date: new Date().toISOString(),
-      };
-
-      await saveContactMessage(contactMessage);
+      });
       
       Alert.alert(
         'Thành công',

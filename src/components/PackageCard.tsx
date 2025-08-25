@@ -6,9 +6,16 @@ import { Package } from '../types';
 interface PackageCardProps {
   package: Package;
   onSelect: (pkg: Package) => void;
+  successCount?: number;
 }
 
-export const PackageCard: React.FC<PackageCardProps> = ({ package: pkg, onSelect }) => {
+export const PackageCard: React.FC<PackageCardProps> = ({ package: pkg, onSelect, successCount }) => {
+  // fallback for API data
+  const benefits = Array.isArray(pkg.benefits) ? pkg.benefits : [];
+  const imageUrl = pkg.image || pkg.imageUrl || '';
+  const duration = pkg.duration || pkg.durationDays || '';
+  const cupsPerDay = pkg.cupsPerDay || pkg.dailyQuota || '';
+
   return (
     <TouchableOpacity 
       style={[styles.card, pkg.popular && styles.popularCard]} 
@@ -20,36 +27,46 @@ export const PackageCard: React.FC<PackageCardProps> = ({ package: pkg, onSelect
           <Text style={styles.popularText}>PHỔ BIẾN NHẤT</Text>
         </View>
       )}
-      
-      <Image source={{ uri: pkg.image }} style={styles.image} />
-      
+
+      <Image source={{ uri: imageUrl }} style={styles.image} />
+
       <View style={styles.content}>
         <Text style={styles.packageName}>{pkg.name}</Text>
-        
+
         <View style={styles.priceContainer}>
           <Text style={styles.price}>
             {pkg.price.toLocaleString('vi-VN')}₫
           </Text>
-          <Text style={styles.duration}>/{pkg.duration}</Text>
+          <Text style={styles.duration}>/{duration}</Text>
         </View>
-        
+
         <Text style={styles.description}>
-          {pkg.cupsPerDay} ly cà phê mỗi ngày
+          {cupsPerDay ? `${cupsPerDay} ly cà phê mỗi ngày` : pkg.description}
         </Text>
-        
-        <View style={styles.benefits}>
-          {pkg.benefits.slice(0, 2).map((benefit, index) => (
-            <Text key={index} style={styles.benefit}>
-              • {benefit}
-            </Text>
-          ))}
-        </View>
-        
+
+        {benefits.length > 0 && (
+          <View style={styles.benefits}>
+            {benefits.slice(0, 2).map((benefit, index) => (
+              <Text key={index} style={styles.benefit}>
+                • {benefit}
+              </Text>
+            ))}
+          </View>
+        )}
+
+        {successCount && successCount > 0 && (
+          <Text style={{ textAlign: 'center', marginBottom: 8, color: Colors.primary }}>
+            Đã đăng ký thành công: {successCount} lần
+          </Text>
+        )}
+
         <TouchableOpacity 
           style={styles.selectButton}
           onPress={() => onSelect(pkg)}
         >
-          <Text style={styles.selectButtonText}>Đăng Ký Ngay</Text>
+          <Text style={styles.selectButtonText}>
+            {successCount && successCount > 0 ? 'Đăng ký thêm' : 'Đăng Ký Ngay'}
+          </Text>
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
