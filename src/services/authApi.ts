@@ -8,6 +8,8 @@ export const login = {
 };
 export const register = api.register;
 export const getProfile = api.getProfile;
+export const getStaffProfile = api.getStaffProfile;
+export const testToken = api.testToken;
 export const logout = () => {
   // Nếu chỉ cần xóa token ở client, không cần gọi API
 };

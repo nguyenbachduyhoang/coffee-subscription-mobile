@@ -14,6 +14,8 @@ import { AuthModal } from '../../components/AuthModal';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigation } from '@react-navigation/native';
 import { Package } from '../../types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { subscriptionsApi } from '../../services/api';
 
 const { width } = Dimensions.get('window');
 
@@ -26,6 +28,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<any[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
 
   // Thêm state cho modal thanh toán
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
@@ -39,15 +42,30 @@ export default function HomeScreen() {
     }
     try {
       setOrderLoading(true);
-      // Gọi API tạo đơn hàng/subscription
-      const paymentInfo = await createSubscriptionOrder(Number(pkg.id), user.token!);
-      setPaymentData(paymentInfo);
-      setPaymentModalVisible(true);
+      // Chuyển thẳng sang màn hình thanh toán
+      (navigation as any).navigate('PaymentScreen', { planId: Number(pkg.id) });
     } catch (e) {
       Alert.alert('Lỗi', 'Không thể tạo đơn hàng');
     } finally {
       setOrderLoading(false);
     }
+  };
+
+  const handlePackageDetail = (pkg: Package) => {
+    // Convert Package to Plan format for navigation
+    const plan = {
+      planId: Number(pkg.id),
+      name: pkg.name,
+      description: pkg.description || 'Gói cà phê chất lượng cao với hương vị đậm đà, được pha chế từ những hạt cà phê Việt Nam tuyển chọn. Thưởng thức cà phê mỗi ngày với gói đăng ký tiện lợi này.',
+      productName: pkg.name,
+      imageUrl: pkg.image,
+      price: pkg.price,
+      durationDays: Number(pkg.duration),
+      dailyQuota: pkg.cupsPerDay,
+      maxPerVisit: pkg.cupsPerDay,
+      active: true,
+    };
+    (navigation as any).navigate('PackageDetail', { plan });
   };
 
   React.useEffect(() => {
@@ -72,6 +90,33 @@ export default function HomeScreen() {
     fetchData();
   }, []);
 
+  // Fetch subscriptions when user changes
+  React.useEffect(() => {
+    const fetchSubscriptions = async () => {
+      if (!user) {
+        setSubscriptions([]);
+        return;
+      }
+      
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (token) {
+          const data = await subscriptionsApi.getMySubscriptions(token);
+          if (data && Array.isArray(data)) {
+            setSubscriptions(data);
+          } else {
+            setSubscriptions([]);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching subscriptions:', error);
+        setSubscriptions([]);
+      }
+    };
+    
+    fetchSubscriptions();
+  }, [user]);
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Hero Section */}
@@ -80,7 +125,7 @@ export default function HomeScreen() {
         style={styles.hero}
       >
         <View style={styles.heroContent}>
-          <Coffee size={48} color={Colors.secondary} />
+       
           <Text style={styles.heroTitle}>
             Cà Phê Subscription{'\n'}Premium
           </Text>
@@ -124,31 +169,49 @@ export default function HomeScreen() {
         {loading ? (
           <Text style={{ textAlign: 'center', color: Colors.primary, marginVertical: 16 }}>Đang tải...</Text>
         ) : (
-          featuredPackages.map((plan) => (
-            <PackageCard
-              key={plan.planId}
-              package={{
-                id: String(plan.planId),
-                name: plan.name,
-                price: plan.price,
-                image: plan.imageUrl,
-                cupsPerDay: plan.dailyQuota,
-                duration: String(plan.durationDays),
-                benefits: [],
-                popular: false,
-              }}
-              onSelect={() => handlePackageSelect({
-                id: String(plan.planId),
-                name: plan.name,
-                price: plan.price,
-                image: plan.imageUrl,
-                cupsPerDay: plan.dailyQuota,
-                duration: String(plan.durationDays),
-                benefits: [],
-                popular: false,
-              })}
-            />
-          ))
+          featuredPackages.map((plan) => {
+            // Get success count for this plan
+            const successCount = subscriptions.filter(
+              sub => sub.planId === plan.planId && sub.status === 'Active'
+            ).length;
+            
+            return (
+              <PackageCard
+                key={plan.planId}
+                package={{
+                  id: String(plan.planId),
+                  name: plan.name,
+                  price: plan.price,
+                  image: plan.imageUrl,
+                  cupsPerDay: plan.dailyQuota,
+                  duration: String(plan.durationDays),
+                  benefits: [],
+                  popular: false,
+                }}
+                onSelect={() => handlePackageSelect({
+                  id: String(plan.planId),
+                  name: plan.name,
+                  price: plan.price,
+                  image: plan.imageUrl,
+                  cupsPerDay: plan.dailyQuota,
+                  duration: String(plan.durationDays),
+                  benefits: [],
+                  popular: false,
+                })}
+                onCardPress={() => handlePackageDetail({
+                  id: String(plan.planId),
+                  name: plan.name,
+                  price: plan.price,
+                  image: plan.imageUrl,
+                  cupsPerDay: plan.dailyQuota,
+                  duration: String(plan.durationDays),
+                  benefits: [],
+                  popular: false,
+                })}
+                successCount={successCount}
+              />
+            );
+          })
         )}
       </View>
 
@@ -163,11 +226,17 @@ export default function HomeScreen() {
         {productsLoading ? (
           <Text style={{ textAlign: 'center', color: Colors.primary, marginVertical: 16 }}>Đang tải...</Text>
         ) : (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-            {products.map((product) => (
-              <ProductCard key={product.productId} product={product} />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingVertical: 4 }}
+          >
+            {products.map((product, idx) => (
+              <View key={product.productId} style={{ width: width - 40, marginRight: 12 }}>
+                <ProductCard product={product} />
+              </View>
             ))}
-          </View>
+          </ScrollView>
         )}
       </View>
 

@@ -15,7 +15,8 @@ import {
 } from "react-native"
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native"
 import { createSubscriptionOrder, SubscriptionOrderResponse } from "../../services/paymentApi"
-import { useAuth } from "../../hooks/useAuth"
+import * as SecureStore from 'expo-secure-store';
+import { useAuth } from '../../hooks/useAuth';
 import { Colors, Shadows } from "../../constants/colors"
 import Successfully from "./components/Successfully"
 import Ionicons from "react-native-vector-icons/Ionicons"
@@ -23,8 +24,8 @@ import { subscriptionsApi } from "../../services/api"
 
 // Define route params type
 type PaymentScreenRouteProp = RouteProp<{
-  Payment: { planId: string };
-}, 'Payment'>;
+  PaymentScreen: { planId: number };
+}, 'PaymentScreen'>;
 
 // Thêm hàm fetch subscription
 async function checkSubscriptionActive(planId: number, token: string) {
@@ -48,15 +49,26 @@ export default function PaymentScreen() {
   const [copied, setCopied] = useState<string | null>(null)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
 
+  const getToken = async () => {
+    if (user?.token) return user.token;
+    const userData = await SecureStore.getItemAsync('user');
+    if (userData) {
+      const parsed = JSON.parse(userData);
+      return parsed.token;
+    }
+    return null;
+  };
+
   const createOrder = async () => {
-    if (!user?.token) {
+    const token = await getToken();
+    if (!token) {
       Alert.alert("Lỗi", "Không tìm thấy token đăng nhập. Vui lòng đăng nhập lại.")
       navigation.goBack()
       return
     }
     try {
       setError(null)
-      const data = await createSubscriptionOrder(Number(route.params.planId), user.token)
+      const data = await createSubscriptionOrder(Number(route.params.planId), token)
       setPaymentData(data)
     } catch (e: any) {
       setError(e?.message || "Không thể tạo đơn hàng")
@@ -110,21 +122,52 @@ export default function PaymentScreen() {
     return () => clearInterval(t)
   }, [remainingSec])
 
-  // Polling kiểm tra trạng thái thanh toán
+  // Polling kiểm tra thanh toán: chỉ thành công khi số subscription Active của plan tăng
   useEffect(() => {
-    if (!paymentData?.planId || !user?.token) return;
-    let interval: NodeJS.Timeout;
-    let count = 0;
-    interval = setInterval(async () => {
-      count++;
-      const isActive = await checkSubscriptionActive(paymentData.planId!, user.token!);
-      if (isActive) {
-        clearInterval(interval);
-        setShowSuccessModal(true);
+    if (!paymentData) return;
+    let interval: NodeJS.Timeout | undefined;
+
+    const getActiveCount = async (token: string, planId: number) => {
+      try {
+        const res = await subscriptionsApi.getMySubscriptions(token);
+        return res.filter((sub: any) => sub.planId === planId && sub.status === 'Active').length;
+      } catch {
+        return 0;
       }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [paymentData, user?.token])
+    };
+
+    (async () => {
+      // Lấy token
+      let token = user?.token;
+      if (!token) {
+        const userData = await SecureStore.getItemAsync('user');
+        if (userData) {
+          const parsed = JSON.parse(userData);
+          token = parsed.token;
+        }
+      }
+      if (!token) {
+        Alert.alert("Lỗi", "Không tìm thấy token đăng nhập. Vui lòng đăng nhập lại.");
+        navigation.goBack();
+        return;
+      }
+
+      const planId = route.params.planId;
+      const baselineCount = await getActiveCount(token, planId);
+
+      interval = setInterval(async () => {
+        const currentCount = await getActiveCount(token!, planId);
+        if (currentCount > baselineCount) {
+          if (interval) clearInterval(interval);
+          setShowSuccessModal(true);
+        }
+      }, 5000);
+    })();
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [paymentData, route.params.planId, user]);
 
   if (loading) {
     return (
@@ -222,12 +265,6 @@ export default function PaymentScreen() {
           </Text>
         </View>
         {/* Confirm/Close */}
-        <TouchableOpacity
-          style={[styles.closeBtnMain, { backgroundColor: "#2196F3", marginBottom: 12 }]}
-          onPress={() => setShowSuccessModal(true)}
-        >
-          <Text style={[styles.closeBtnTextMain, { color: "#fff" }]}>Test Success Modal</Text>
-        </TouchableOpacity>
         <TouchableOpacity style={styles.closeBtnMain} onPress={() => navigation.goBack()}>
           <Text style={styles.closeBtnTextMain}>Đóng</Text>
         </TouchableOpacity>
@@ -240,7 +277,10 @@ export default function PaymentScreen() {
         <Successfully
           visible={showSuccessModal}
           onClose={() => setShowSuccessModal(false)}
-          navigation={navigation}
+          onGoHome={() => {
+            setShowSuccessModal(false);
+            (navigation as any).navigate('MainTabs', { screen: 'Home' });
+          }}
         />
       </ScrollView>
     </SafeAreaView>

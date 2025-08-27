@@ -29,7 +29,7 @@ type ProfileStackParamList = {
 };
 
 export default function ProfileScreen() {
-  const { logout } = useAuth();
+  const { logout, user: authUser, setUser: setCtxUser } = useAuth();
   const [user, setUser] = useState<any>(null);
   const { getPurchases } = useStorage();
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -39,30 +39,70 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     const fetchProfile = async () => {
-      const token = await AsyncStorage.getItem('token');
-      console.log('Token from AsyncStorage:', token);
-      if (token) {
-        try {
-          const profile = await getProfile(token);
-          console.log('Profile from API:', profile);
-          setUser(profile);
-          // Lưu lại user vào SecureStore để QRCode lấy đúng số điện thoại
-          try {
-            await SecureStore.setItemAsync('user', JSON.stringify(profile));
-          } catch (e) {
-            console.log('Error saving user to SecureStore:', e);
+      try {
+        // Ưu tiên dùng user từ context (đã có token và phone sau login)
+        if (authUser) {
+          setUser(authUser);
+          try { await SecureStore.setItemAsync('user', JSON.stringify(authUser)); } catch {}
+        }
+
+        // Chỉ gọi API với role customer và có token
+        const token = authUser?.token || (await AsyncStorage.getItem('token')) || '';
+        const role = authUser?.role || 'customer';
+        
+        // Nếu không có token, không gọi API và để user = null (hiển thị guest mode)
+        if (!token) {
+          console.log('⚠️ No token found - showing guest mode');
+          setUser(null);
+          return;
+        }
+        
+        // Staff/barista không cần gọi customer profile API
+        if (role === 'staff' || role === 'barista') {
+          console.log('⚠️ Skipping profile API call - user is staff/barista, using context data');
+          console.log('👤 User role:', role, 'Email:', authUser?.email);
+          // Staff sử dụng data từ context, không cần gọi API
+          if (authUser) {
+            setUser(authUser);
+            try { await SecureStore.setItemAsync('user', JSON.stringify(authUser)); } catch {}
           }
           loadPurchases();
+          return;
+        }
+        
+        // Chỉ customer mới gọi profile API
+        if (role !== 'customer') {
+          console.log('⚠️ Skipping profile API call - unknown role:', role);
+          return;
+        }
+
+        try {
+          console.log('🔍 Fetching customer profile...');
+          const profile = await getProfile(token);
+          setUser(profile);
+          // Lưu lại user vào SecureStore để QRCode lấy đúng số điện thoại
+          try { await SecureStore.setItemAsync('user', JSON.stringify(profile)); } catch {}
         } catch (error) {
           console.log('Error fetching profile:', error);
+          // Fallback: nếu context có user thì giữ nguyên, nếu không thì để null
+          if (!authUser) {
+            setUser(null);
+          }
+        }
+
+        loadPurchases();
+      } catch (e) {
+        console.log('Unexpected error in fetchProfile:', e);
+        // Fallback to context user if available
+        if (authUser) {
+          setUser(authUser);
+        } else {
           setUser(null);
         }
-      } else {
-        setUser(null);
       }
     };
     fetchProfile();
-  }, [reloadProfile]);
+  }, [reloadProfile, authUser]);
 
   const loadPurchases = async () => {
     const userPurchases = await getPurchases();
@@ -76,9 +116,15 @@ export default function ProfileScreen() {
       [
         { text: 'Hủy', style: 'cancel' },
         { text: 'Đăng Xuất', onPress: async () => {
-            await AsyncStorage.removeItem('token');
-            setReloadProfile(r => !r);
-            if (logout) logout();
+            try {
+              await AsyncStorage.removeItem('token');
+              try { await SecureStore.deleteItemAsync('user'); } catch {}
+            } finally {
+              setUser(null);
+              try { setCtxUser && setCtxUser(null as any); } catch {}
+              setReloadProfile(r => !r);
+              if (logout) await logout();
+            }
           }, style: 'destructive' },
       ]
     );
@@ -95,7 +141,7 @@ export default function ProfileScreen() {
           <UserIcon size={64} color={Colors.gray[400]} />
           <Text style={styles.guestTitle}>Chưa Đăng Nhập</Text>
           <Text style={styles.guestSubtitle}>
-            Đăng nhập để xem thông tin cá nhân và lịch sử mua hàng
+            Đăng nhập để xem thông tin cá nhân, lịch sử mua hàng và sử dụng QR code
           </Text>
           
           <TouchableOpacity
@@ -144,7 +190,7 @@ export default function ProfileScreen() {
       {/* Purchase History */}
       <View style={styles.section}>
         <TouchableOpacity
-          style={styles.actionButton} // dùng style giống các nút bên dưới
+          style={styles.actionButton}
           onPress={() => navigation.navigate('HistoryScreen')}
           activeOpacity={0.7}
         >
@@ -152,16 +198,14 @@ export default function ProfileScreen() {
           <Text style={styles.actionText}>Lịch Sử Mua Hàng</Text>
         </TouchableOpacity>
       </View>
-      
-    
 
       {/* Actions */}
       <View style={styles.actionsSection}>
-  <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('Benefits')}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('Benefits')}>
           <Gift size={20} color={Colors.primary} />
           <Text style={styles.actionText}>Lợi Ích</Text>
         </TouchableOpacity>
-  <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('Contact')}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('Contact')}>
           <Phone size={20} color={Colors.primary} />
           <Text style={styles.actionText}>Liên Hệ</Text>
         </TouchableOpacity>
@@ -183,6 +227,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.white,
+    overflow: 'hidden',
   },
   header: {
     paddingHorizontal: 20,
@@ -235,7 +280,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderRadius: 16,
     padding: 20,
-    ...Shadows.medium,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 5,
   },
   avatar: {
     width: 56,
@@ -265,110 +314,38 @@ const styles = StyleSheet.create({
   },
   section: {
     padding: 20,
-    gap: 12,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
-    color: Colors.primary,
-    marginLeft: 8,
-  },
-  emptyState: {
-    backgroundColor: Colors.gray[50],
-    borderRadius: 12,
-    padding: 32,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: Colors.gray[500],
-  },
-  purchasesList: {
-    gap: 12,
-  },
-  purchaseCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    padding: 16,
-    ...Shadows.small,
-  },
-  purchaseHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  purchaseName: {
-    fontSize: 16,
-    fontFamily: 'Poppins-SemiBold',
-    color: Colors.primary,
-  },
-  purchasePrice: {
-    fontSize: 16,
-    fontFamily: 'Poppins-Bold',
-    color: Colors.primary,
-  },
-  purchaseDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  purchaseMethod: {
-    fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: Colors.gray[600],
-  },
-  purchaseDate: {
-    fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: Colors.gray[600],
-  },
-  statusBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.gray[100],
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  statusCompleted: {
-    backgroundColor: Colors.success,
-  },
-  statusText: {
-    fontSize: 10,
-    fontFamily: 'Poppins-Medium',
-    color: Colors.gray[600],
-  },
-  statusTextCompleted: {
-    color: Colors.white,
+    paddingBottom: 0,
   },
   actionsSection: {
     padding: 20,
-    gap: 12, // khoảng cách đều giữa các card
+    gap: 16,
     paddingBottom: 100,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.white,
-    borderRadius: 12,
-    padding: 16,
-    ...Shadows.small,
-    // Xóa marginBottom nếu có
+    borderRadius: 16,
+    padding: 18,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    marginBottom: 0,
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.white,
-    borderRadius: 12,
-    padding: 16,
-    ...Shadows.small,
-    // Xóa marginBottom nếu có
+    borderRadius: 16,
+    padding: 18,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    marginBottom: 0,
   },
   actionText: {
     fontSize: 16,

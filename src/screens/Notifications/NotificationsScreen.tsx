@@ -1,56 +1,84 @@
-import React from 'react';
-import { View, Text, StyleSheet, FlatList } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { Bell } from 'lucide-react-native';
 import { Colors, Shadows } from '../../constants/colors';
+import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+import { notificationApi, AppNotification } from '../../services/notificationApi';
 
-const notifications = [
-  {
-    id: '1',
-    title: 'Chào mừng bạn đến với Coffee Subscription!',
-    description: 'Bạn vừa đăng ký thành công tài khoản.',
-    time: '1 phút trước',
-  },
-  {
-    id: '2',
-    title: 'Ưu đãi tháng 8',
-    description: 'Nhận ngay mã giảm giá 10% cho gói Premium.',
-    time: '2 giờ trước',
-  },
-];
+// Optional: present foreground notifications (adjust to match SDK)
+// Skip configuring notifications on Expo Go (no remote notifications there)
+// We also avoid dynamic imports to satisfy TS module settings.
 
-const NotificationItem = ({ item }: { item: typeof notifications[0] }) => (
-  <View style={styles.card}>
-    <View style={styles.iconWrap}>
-      <Bell size={24} color={Colors.primary} />
+const NotificationItem = ({ item }: { item: AppNotification }) => (
+  <View style={[styles.card, item.status !== 'Read' && styles.unreadCard]}>
+    <View style={[styles.iconWrap, item.status !== 'Read' && styles.unreadIconWrap]}>
+      <Bell size={24} color={item.status === 'Read' ? Colors.gray[400] : Colors.primary} />
     </View>
     <View style={{ flex: 1 }}>
-      <Text style={styles.title}>{item.title}</Text>
-      <Text style={styles.desc}>{item.description}</Text>
-      <Text style={styles.time}>{item.time}</Text>
+      <Text style={[styles.title, item.status !== 'Read' && styles.unreadTitle]}>{item.title}</Text>
+      <Text style={styles.desc}>{item.body}</Text>
+      <Text style={styles.time}>{new Date(item.createdAt).toLocaleString()}</Text>
     </View>
+    {item.status !== 'Read' && <View style={styles.unreadDot} />}
   </View>
 );
 
 export default function NotificationsScreen() {
+  const [items, setItems] = useState<AppNotification[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const latestIdRef = useRef<number | undefined>(undefined);
+  const pollingRef = useRef<any>(null);
+
+  const fetchData = async () => {
+    try {
+      const userData = await SecureStore.getItemAsync('user');
+      const parsed = userData ? JSON.parse(userData) : null;
+      const token = parsed?.token || (await AsyncStorage.getItem('token')) || '';
+      if (!token) { setItems([]); return; }
+      const res = await notificationApi.getNotifications(token);
+      setItems(res || []);
+      const latest = (res || [])[0];
+      if (latest && latest.notificationId !== latestIdRef.current) {
+        latestIdRef.current = latest.notificationId;
+        // Note: On Expo Go we won't schedule local notifications here to avoid SDK warnings.
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  };
+
+  useEffect(() => {
+    // initial load
+    fetchData();
+    // start polling every 20s
+    pollingRef.current = setInterval(fetchData, 20000);
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
   return (
     <View style={styles.container}>
       <View style={styles.headerWrap}>
         <Text style={styles.header}>Thông báo</Text>
       </View>
-      {notifications.length === 0 ? (
-        <View style={styles.empty}>
-          <Bell size={48} color={Colors.gray[400]} />
-          <Text style={styles.emptyText}>Chưa có thông báo nào</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={notifications}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => <NotificationItem item={item} />}
-          contentContainerStyle={{ paddingBottom: 32 }}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
+      <FlatList
+        data={items}
+        keyExtractor={item => String(item.notificationId)}
+        renderItem={({ item }) => <NotificationItem item={item} />}
+        contentContainerStyle={{ paddingBottom: 32 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        ListEmptyComponent={<Text style={{ textAlign: 'center', color: Colors.gray[400], marginTop: 40 }}>Chưa có thông báo</Text>}
+      />
     </View>
   );
 }
@@ -80,6 +108,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     ...Shadows.medium,
   },
+  unreadCard: {
+    borderWidth: 2,
+    borderColor: Colors.primary,
+  },
   iconWrap: {
     width: 40,
     height: 40,
@@ -89,11 +121,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 16,
   },
+  unreadIconWrap: {
+    backgroundColor: Colors.secondary,
+  },
   title: {
     fontSize: 16,
     fontFamily: 'Poppins-SemiBold',
     color: Colors.primary,
     marginBottom: 4,
+  },
+  unreadTitle: {
+    color: Colors.primary,
   },
   desc: {
     fontSize: 14,
@@ -106,16 +144,11 @@ const styles = StyleSheet.create({
     color: Colors.gray[500],
     fontFamily: 'Poppins-Regular',
   },
-  empty: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 60,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: Colors.gray[400],
-    fontFamily: 'Poppins-Regular',
-    marginTop: 16,
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.primary,
+    marginLeft: 12,
   },
 });

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "coffee-subscription-mobile",
-    "slug": "coffee-subscription-mobile",
+    "name": "Daily Coffee",
+    "slug": "daily-coffee",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,14 +20,25 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "package": "com.nguyenduyhoang149.dailycoffee",
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-barcode-scanner",
-      "expo-secure-store"
-    ]
+      "expo-camera",
+      "expo-secure-store",
+      "expo-router"
+    ],
+    "jsEngine": "hermes",
+    "extra": {
+      "eas": {
+        "projectId": "c1787773-ff9b-4448-8505-e6d50418ca56"
+      }
+    }
   }
 }

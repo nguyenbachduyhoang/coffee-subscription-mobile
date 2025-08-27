@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 // Màn hình này được sử dụng cho tab "Gói Dịch Vụ" (packages) trong thanh điều hướng chính.
 import {
   View,
@@ -6,15 +6,17 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Filter } from 'lucide-react-native';
 import { Colors } from '../../constants/colors';
-// import { PACKAGES } from '../../constants/data';
 import { getAllPlans, Plan } from '../../services/packageApi';
 import { PackageCard } from '../../components/PackageCard';
 import { AuthModal } from '../../components/AuthModal';
 import { useAuth } from '../../hooks/useAuth';
+import { subscriptionsApi } from '../../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 function PackagesScreen() {
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -23,22 +25,71 @@ function PackagesScreen() {
   const navigation = useNavigation();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
 
   React.useEffect(() => {
-    getAllPlans()
-      .then(data => {
-        setPlans(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await getAllPlans();
+        if (!cancelled) {
+          setPlans(data);
+          setLoading(false);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const fetchSubscriptions = async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (!token) {
+          console.log('No token found for subscriptions');
+          setSubscriptions([]);
+          return;
+        }
+        
+        console.log('Fetching subscriptions with token:', token ? 'Token exists' : 'No token');
+        const data = await subscriptionsApi.getMySubscriptions(token);
+        console.log('Subscriptions data:', data ? `Got ${Array.isArray(data) ? data.length : 0} items` : 'No data');
+        
+        if (data && Array.isArray(data)) {
+          setSubscriptions(data);
+        } else {
+          console.log('Subscriptions data is not an array:', typeof data);
+          setSubscriptions([]);
+        }
+      } catch (error) {
+        console.error('Error fetching subscriptions:', error);
+        setSubscriptions([]);
+      }
+    };
+    
+    // Only fetch if user is logged in
+    if (user) {
+      fetchSubscriptions();
+    } else {
+      setSubscriptions([]);
+    }
+  }, [user]);
 
   const handlePackageSelect = (plan: Plan) => {
     if (!user) {
       setShowAuthModal(true);
       return;
     }
-  (navigation as any).navigate('PaymentScreen', { planId: plan.planId });
+    (navigation as any).navigate('PaymentScreen', { planId: plan.planId });
+  };
+
+  const handlePackageDetail = (plan: Plan) => {
+    (navigation as any).navigate('PackageDetail', { plan });
   };
 
   const filteredPlans = plans.filter(plan => {
@@ -47,6 +98,13 @@ function PackagesScreen() {
     if (selectedFilter === 'premium') return plan.dailyQuota >= 3;
     return true;
   });
+
+  const getSuccessCount = (planId: number) => {
+    if (!Array.isArray(subscriptions)) return 0;
+    return subscriptions.filter(
+      sub => sub.planId === planId && sub.status === 'Active'
+    ).length;
+  };
 
   if (loading) {
     return (
@@ -60,9 +118,10 @@ function PackagesScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Gói Dịch Vụ</Text>
-        <TouchableOpacity style={styles.filterButton}>
+        <View style={styles.filterButton}>
           <Filter size={20} color={Colors.primary} />
-        </TouchableOpacity>
+          <Text style={styles.filterButtonText}>Lọc</Text>
+        </View>
       </View>
 
 
@@ -105,22 +164,29 @@ function PackagesScreen() {
         <Text style={styles.sectionSubtitle}>
           Chọn gói phù hợp với nhu cầu của bạn
         </Text>
-        {filteredPlans.map((plan) => (
-          <PackageCard
-            key={plan.planId}
-            package={{
-              id: String(plan.planId),
-              name: plan.name,
-              price: plan.price,
-              image: plan.imageUrl,
-              cupsPerDay: plan.dailyQuota,
-              duration: String(plan.durationDays),
-              benefits: [], // API không có, truyền mảng rỗng
-              popular: false, // API không có, truyền false
-            }}
-            onSelect={() => handlePackageSelect(plan)}
-          />
-        ))}
+        {filteredPlans.map(plan => {
+          // Ensure all values are valid before passing to component
+          const safePackage = {
+            id: String(plan.planId || ''),
+            name: typeof plan.name === 'string' ? plan.name : '',
+            price: typeof plan.price === 'number' ? plan.price : 0,
+            duration: String(plan.durationDays || ''),
+            cupsPerDay: typeof plan.dailyQuota === 'number' ? plan.dailyQuota : 0,
+            image: typeof plan.imageUrl === 'string' ? plan.imageUrl : '',
+            benefits: [], // Always empty array
+            popular: false,
+          };
+          
+          return (
+            <PackageCard
+              key={plan.planId}
+              package={safePackage}
+              onSelect={() => handlePackageSelect(plan)}
+              onCardPress={() => handlePackageDetail(plan)}
+              successCount={getSuccessCount(plan.planId)}
+            />
+          );
+        })}
       </ScrollView>
 
       <AuthModal
@@ -153,6 +219,14 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
     backgroundColor: Colors.secondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  filterButtonText: {
+    fontSize: 14,
+    fontFamily: 'Poppins-Medium',
+    color: Colors.primary,
   },
   filterContainer: {
     maxHeight: 50,

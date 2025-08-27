@@ -1,5 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User } from '../types';
 import { authApi } from '../services/api';
 import { decodeJwt } from './jwtDecode';
@@ -59,7 +60,7 @@ export const useAuthLogic = () => {
 
       const decoded = decodeJwt(token) as { sub?: string; name?: string; phone?: string; role?: string };
 
-      const userData: User = {
+      const baseUserData: User = {
         id: decoded.sub || Date.now().toString(),
         email,
         name: decoded.name || email.split('@')[0],
@@ -68,9 +69,33 @@ export const useAuthLogic = () => {
         token,
       };
 
-      await SecureStore.setItemAsync('user', JSON.stringify(userData));
-      setUser(userData);
-      console.log('Customer login successful:', userData);
+      // Fetch profile to ensure we have latest phone number
+      let finalUserData: User = baseUserData;
+      try {
+        // Chỉ customer mới cần fetch profile
+        if (decoded.role === 'customer') {
+          const profile: any = await authApi.getProfile(token);
+          const phoneFromProfile = profile?.phone || profile?.data?.phone || profile?.phoneNumber || '';
+          const nameFromProfile = profile?.name || profile?.fullName || '';
+          finalUserData = {
+            ...baseUserData,
+            phone: phoneFromProfile || baseUserData.phone,
+            name: nameFromProfile || baseUserData.name,
+          };
+        } else {
+          console.log('⚠️ Skipping profile fetch for staff/barista user');
+          finalUserData = baseUserData;
+        }
+      } catch (e) {
+        console.log('Get profile after login failed, using token data only');
+        finalUserData = baseUserData;
+      }
+
+      await SecureStore.setItemAsync('user', JSON.stringify(finalUserData));
+      // Also keep a copy of token in AsyncStorage for interceptors
+      try { await AsyncStorage.setItem('token', token); } catch {}
+      setUser(finalUserData);
+      console.log('Customer login successful:', finalUserData);
       return true;
     } catch (error: any) {
       console.error('Customer login error:', error.response?.data || error.message);
@@ -88,6 +113,7 @@ export const useAuthLogic = () => {
         };
         
         await SecureStore.setItemAsync('user', JSON.stringify(userData));
+        try { await AsyncStorage.setItem('token', userData.token!); } catch {}
         setUser(userData);
         return true;
       }
@@ -116,6 +142,8 @@ export const useAuthLogic = () => {
       };
 
       await SecureStore.setItemAsync('user', JSON.stringify(userData));
+      // Also keep a copy of token in AsyncStorage for interceptors
+      try { await AsyncStorage.setItem('token', token); } catch {}
       setUser(userData);
       console.log('Staff login successful:', userData);
       return true;
@@ -176,6 +204,10 @@ export const useAuthLogic = () => {
   const logout = async (): Promise<void> => {
     try {
       await SecureStore.deleteItemAsync('user');
+      try {
+        await AsyncStorage.removeItem('token');
+        await AsyncStorage.removeItem('last_notification_id');
+      } catch {}
       setUser(null);
       console.log('User logged out');
     } catch (error) {
