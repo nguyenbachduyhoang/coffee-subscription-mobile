@@ -12,4 +12,5 @@ export interface AppNotification {
 
 export const notificationApi = {
   getNotifications: api.getNotifications,
+  registerDevice: api.registerDevice,
 };

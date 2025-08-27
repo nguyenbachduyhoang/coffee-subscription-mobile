@@ -36,16 +36,54 @@ export const useAuthLogic = () => {
 
   const loadUserFromStorage = async () => {
     try {
-      const userData = await SecureStore.getItemAsync('user');
+      console.log('🔄 Loading user from storage...');
+      const [userData, tokenFromAS] = await Promise.all([
+        SecureStore.getItemAsync('user'),
+        AsyncStorage.getItem('token')
+      ]);
+
       if (userData) {
         const parsedUser = JSON.parse(userData);
-        console.log('Loaded user from storage:', parsedUser);
-        setUser(parsedUser);
+        const mergedUser: User = {
+          ...parsedUser,
+          token: parsedUser.token || tokenFromAS || ''
+        };
+
+        if (mergedUser.token) {
+          try { await AsyncStorage.setItem('token', mergedUser.token); } catch {}
+        }
+
+        await SecureStore.setItemAsync('user', JSON.stringify(mergedUser));
+        setUser(mergedUser);
+        console.log('✅ Loaded user (merged):', !!mergedUser.token ? 'has token' : 'no token');
+        return;
       }
+
+      // Fallback: only token exists
+      if (tokenFromAS) {
+        try {
+          const d: any = decodeJwt(tokenFromAS);
+          const fallbackUser: User = {
+            id: d?.sub || Date.now().toString(),
+            email: d?.email || '',
+            name: d?.name || '',
+            phone: d?.phone || '',
+            role: d?.role || 'customer',
+            token: tokenFromAS,
+          };
+          await SecureStore.setItemAsync('user', JSON.stringify(fallbackUser));
+          setUser(fallbackUser);
+          console.log('✅ Recovered user from AsyncStorage token');
+          return;
+        } catch {}
+      }
+
+      console.log('ℹ️ No user/token found');
     } catch (error) {
-      console.error('Error loading user:', error);
+      console.error('❌ Error loading user:', error);
     } finally {
       setIsLoading(false);
+      console.log('🏁 Finished loading user from storage');
     }
   };
 
@@ -178,6 +216,8 @@ export const useAuthLogic = () => {
         };
         
         await SecureStore.setItemAsync('user', JSON.stringify(userData));
+        // Also keep a copy of token in AsyncStorage for interceptors
+        try { await AsyncStorage.setItem('token', token); } catch {}
         setUser(userData);
       } else {
         // Nếu không có token (có thể cần verify email trước)

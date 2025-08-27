@@ -33,12 +33,22 @@ const QRCodeScreen: React.FC = () => {
   useEffect(() => {
     const getProfilePhone = async () => {
       try {
+        // Ưu tiên lấy token từ AsyncStorage trước
+        let token = '';
+        try {
+          token = await AsyncStorage.getItem('token') || '';
+        } catch {}
+        
         const userData = await SecureStore.getItemAsync('user');
         let profile = userData ? JSON.parse(userData) : null;
         let foundPhone = profile?.phone || auth?.user?.phone || '';
+        
         if (!foundPhone) {
           // Thử gọi API profile để lấy số điện thoại nếu chưa có
-          const token = auth?.user?.token || (await AsyncStorage.getItem('token')) || profile?.token || '';
+          if (!token && profile?.token) {
+            token = profile.token;
+          }
+          
           if (token) {
             try {
               const p = await getProfileApi(token);
@@ -48,13 +58,14 @@ const QRCodeScreen: React.FC = () => {
                 // cập nhật lại SecureStore để lần sau lấy nhanh hơn
                 await SecureStore.setItemAsync('user', JSON.stringify({ ...(profile || {}), ...(auth?.user || {}), phone: phoneFromApi }));
               }
-            } catch {
-              // ignore
+            } catch (error) {
+              console.error('Error fetching profile for phone:', error);
             }
           }
         }
         setPhone(foundPhone || 'No phone');
-      } catch {
+      } catch (error) {
+        console.error('Error in getProfilePhone:', error);
         setPhone('No phone');
       }
     };
@@ -64,17 +75,36 @@ const QRCodeScreen: React.FC = () => {
   useEffect(() => {
     const fetchSubscriptions = async () => {
       try {
-        const userData = await SecureStore.getItemAsync('user');
-        const parsed = userData ? JSON.parse(userData) : null;
-        const token = auth?.user?.token || parsed?.token || '';
-        if (!token) { setSubs([]); setSelectedSub(null); return; }
+        // Ưu tiên lấy token từ AsyncStorage trước, sau đó từ SecureStore
+        let token = '';
+        try {
+          token = await AsyncStorage.getItem('token') || '';
+        } catch {}
+        
+        if (!token) {
+          const userData = await SecureStore.getItemAsync('user');
+          const parsed = userData ? JSON.parse(userData) : null;
+          token = parsed?.token || '';
+        }
+        
+        if (!token) { 
+          console.log('No token found for subscriptions');
+          setSubs([]); 
+          setSelectedSub(null); 
+          return; 
+        }
+        
+        console.log('Fetching subscriptions with token:', token ? 'Token exists' : 'No token');
         const data = await subscriptionsApi.getMySubscriptions(token);
+        console.log('Subscriptions data:', data ? `Got ${Array.isArray(data) ? data.length : 0} items` : 'No data');
+        
         const list = (Array.isArray(data) ? data : data?.data || []) as any[];
         // Chỉ gói đang hoạt động
         const active = list.filter((s: any) => `${s.status}`.toLowerCase() === 'active');
         setSubs(active);
         setSelectedSub(active?.[0] || null);
       } catch (e) {
+        console.error('Error fetching subscriptions:', e);
         setSubs([]);
         setSelectedSub(null);
       }
