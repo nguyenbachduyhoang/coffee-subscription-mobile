@@ -14,9 +14,31 @@ import ContactScreen from '../screens/Contact/contact';
 import HistoryScreen from '../screens/History/HistoryScreen';
 import { Colors } from '../constants/colors';
 import { useAuth } from '../hooks/useAuth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
+
+function NotificationsIcon({ size, color }: { size: number; color: string }) {
+  const [hasUnread, setHasUnread] = React.useState(false);
+  React.useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try { const v = await AsyncStorage.getItem('has_unread'); if (mounted) setHasUnread(v === '1'); } catch {}
+    };
+    const intv = setInterval(load, 1000);
+    load();
+    return () => { mounted = false; clearInterval(intv); };
+  }, []);
+  return (
+    <View>
+      <BellIcon size={size} color={color} />
+      {hasUnread && (
+        <View style={{ position: 'absolute', top: -1, right: -1, width: 8, height: 8, borderRadius: 4, backgroundColor: '#4E342E' }} />
+      )}
+    </View>
+  );
+}
 
 function MainTabs() {
   const { user } = useAuth();
@@ -86,10 +108,13 @@ function MainTabs() {
       <Tab.Screen
         name="Notifications"
         component={require('../screens/Notifications/NotificationsScreen').default}
+        listeners={{
+          focus: async () => { try { await AsyncStorage.setItem('has_unread', '0'); } catch {} },
+        }}
         options={{
           title: 'Thông báo',
           tabBarIcon: ({ size, color }) => (
-            <BellIcon size={size} color={color} />
+            <NotificationsIcon size={size} color={color} />
           ),
         }}
       />

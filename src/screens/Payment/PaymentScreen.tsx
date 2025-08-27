@@ -21,6 +21,8 @@ import { Colors, Shadows } from "../../constants/colors"
 import Successfully from "./components/Successfully"
 import Ionicons from "react-native-vector-icons/Ionicons"
 import { subscriptionsApi } from "../../services/api"
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 
 // Define route params type
 type PaymentScreenRouteProp = RouteProp<{
@@ -51,10 +53,18 @@ export default function PaymentScreen() {
 
   const getToken = async () => {
     if (user?.token) return user.token;
+
+    try {
+      const tokenFromAS = await AsyncStorage.getItem('token');
+      if (tokenFromAS) return tokenFromAS;
+    } catch {}
+
     const userData = await SecureStore.getItemAsync('user');
     if (userData) {
-      const parsed = JSON.parse(userData);
-      return parsed.token;
+      try {
+        const parsed = JSON.parse(userData);
+        return parsed.token || null;
+      } catch {}
     }
     return null;
   };
@@ -159,6 +169,16 @@ export default function PaymentScreen() {
         const currentCount = await getActiveCount(token!, planId);
         if (currentCount > baselineCount) {
           if (interval) clearInterval(interval);
+          // Gửi local notification ngay khi xác nhận thanh toán thành công
+          try {
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title: 'Thanh toán thành công',
+                body: 'Subscription của bạn đã được kích hoạt.',
+              },
+              trigger: null,
+            });
+          } catch {}
           setShowSuccessModal(true);
         }
       }, 5000);

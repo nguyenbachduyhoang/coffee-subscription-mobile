@@ -573,6 +573,21 @@ export const notificationsApi = {
     });
     return res.data;
   },
+  // Register device push token for a user (best-effort)
+  registerDevice: async (userId: string, pushToken: string) => {
+    try {
+      const res = await api.post('/notifications/register-device', { userId, pushToken });
+      return res.data;
+    } catch (e: any) {
+      try {
+        const res = await api.post('/devices/register', { userId, pushToken });
+        return res.data;
+      } catch {
+        // Endpoint not available → ignore silently
+        return null;
+      }
+    }
+  },
 };
 
 // ===== DEVICE / FCM API =====

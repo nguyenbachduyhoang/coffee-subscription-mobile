@@ -131,7 +131,12 @@ export default function ProfileScreen() {
   };
 
   const handleRemoveToken = async () => {
-    await AsyncStorage.removeItem('token');
+    try {
+      await AsyncStorage.removeItem('token');
+      Alert.alert('Thành công', 'Token đã được xóa');
+    } catch (error) {
+      Alert.alert('Lỗi', 'Không thể xóa token');
+    }
   };
 
   if (!user) {
