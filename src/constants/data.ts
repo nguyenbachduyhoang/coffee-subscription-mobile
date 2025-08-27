@@ -12,8 +12,7 @@ export const PACKAGES: Package[] = [
   },
   {
     id: '2',
-    name: 'Gói Tiêu Chuẩn',
-    price: 300000,
+    name: 'Gói Tiêu Chuẩn',    price: 300000,
     cupsPerDay: 2,
     duration: '30 ngày',
     benefits: ['2 ly cà phê/ngày', 'Miễn phí giao hàng', 'Hỗ trợ 24/7', 'Tặng 1 ly trong tuần đầu'],

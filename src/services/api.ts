@@ -1,7 +1,13 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import { decodeJwt } from '../hooks/jwtDecode';
+import { API_BASE_URL } from '@env';
 
-const BASE_URL = 'http://minhkhoi02-001-site1.anytempurl.com/api';
+// Prefer .env API_BASE_URL, fallback to provided URL
+const BASE_URL = API_BASE_URL || 'http://minhkhoi02-001-site1.anytempurl.com/api';
+const ALTERNATIVE_BASE_URLS = [BASE_URL];
+
 
 // Create a separate axios instance instead of using global axios
 const api = axios.create({
@@ -14,13 +20,33 @@ api.interceptors.request.use(
   async (config) => {
     try {
       console.log('🌐 API Request:', config.method?.toUpperCase(), config.url);
-      // Add auth token if available (React Native compatible)
-      const token = await AsyncStorage.getItem('token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-        console.log('🔑 Token added to request');
+      const isLoginRequest = (config.url || '').toLowerCase().includes('/login');
+      const skipAuthHeader = (config.headers as any)?.['x-skip-auth'] === 'true';
+      
+      if (!isLoginRequest && !skipAuthHeader) {
+        // Add auth token if available (React Native compatible)
+        let token = await AsyncStorage.getItem('token');
+        if (!token) {
+          // fallback: read from SecureStore 'user'
+          const userData = await SecureStore.getItemAsync('user');
+          if (userData) {
+            try {
+              const parsed = JSON.parse(userData);
+              token = parsed?.token;
+              console.log('🔍 Token found in SecureStore user data');
+            } catch {}
+          }
+        }
+        
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+          console.log('🔑 Token added to request:', token.substring(0, 20) + '...');
+          console.log('📋 Request headers:', config.headers);
+        } else {
+          console.log('❌ No token found in storage');
+        }
       } else {
-        console.log('❌ No token found in storage');
+        console.log('🚫 Skipping auth header for:', config.url);
       }
     } catch (error) {
       console.log('Error getting token from storage:', error);
@@ -40,11 +66,31 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    const isLoginRequest = (error.config?.url || '').toLowerCase().includes('/login');
     console.error('❌ API Error:', error.response?.status, error.config?.url);
     console.error('Error details:', error.response?.data);
-    if (error.response?.status === 401) {
-      // Handle unauthorized access
-      console.log('🚫 Unauthorized access, redirecting to login');
+    
+    // Log chi tiết cho lỗi 403
+    if (error.response?.status === 403) {
+      console.error('🚫 Forbidden (403) - Possible causes:');
+      console.error('   - Insufficient permissions');
+      console.error('   - Token expired or invalid');
+      console.error('   - Role-based access control');
+      console.error('   - Request headers:', error.config?.headers);
+    }
+    
+    // Only handle 401 for non-login requests and when we have a token
+    if (!isLoginRequest && error.response?.status === 401) {
+      // Check if we actually have a token to avoid redirecting guest users
+      AsyncStorage.getItem('token').then(token => {
+        if (token) {
+          console.log('🚫 Unauthorized access with token, redirecting to login');
+        } else {
+          console.log('🚫 Unauthorized access without token - guest user, not redirecting');
+        }
+      }).catch(() => {
+        console.log('🚫 Unauthorized access - error checking token, not redirecting');
+      });
     }
     return Promise.reject(error);
   }
@@ -52,13 +98,26 @@ api.interceptors.response.use(
 
 // ===== AUTHENTICATION API =====
 export const authApi = {
+  // Test token validity
+  testToken: async () => {
+    try {
+      console.log('🧪 Testing token validity...');
+      const res = await api.get('/customers/my-profile');
+      console.log('✅ Token is valid, profile fetched successfully');
+      return { valid: true, data: res.data };
+    } catch (error: any) {
+      console.log('❌ Token test failed:', error.response?.status, error.response?.data);
+      return { valid: false, error: error.response?.status, message: error.response?.data };
+    }
+  },
+
   // Customer authentication
   loginCustomer: async (email: string, password: string) => {
     try {
       console.log('Attempting customer login for:', email);
       console.log('Login URL:', `${BASE_URL}/customers/login`);
       const res = await api.post('/customers/login', { email, password }, {
-        headers: { 'Accept': '*/*', 'Content-Type': 'application/json' },
+        headers: { 'Accept': '*/*', 'Content-Type': 'application/json', 'x-skip-auth': 'true' },
         responseType: 'text'
       });
       console.log('Login response:', res.data);
@@ -73,13 +132,27 @@ export const authApi = {
   // Staff authentication
   loginStaff: async (email: string, password: string) => {
     try {
-      const res = await api.post('/Staff/login', { email, password }, {
-        headers: { 'Accept': '*/*', 'Content-Type': 'application/json' },
-        responseType: 'text'
-      });
-      return res.data;
+      console.log('Attempting staff login for:', email);
+      const endpoints = ['/staffs/login', '/Staffs/login', '/Staff/login', '/staff/login'];
+      let lastErr: any = null;
+      const body = { email: email.trim(), password: password.trim() };
+      for (const ep of endpoints) {
+        try {
+          console.log('Trying staff login URL:', `${BASE_URL}${ep}`);
+          const res = await api.post(ep, body, {
+            headers: { 'Accept': '*/*', 'Content-Type': 'application/json', 'x-skip-auth': 'true' },
+            responseType: 'text'
+          });
+          return res.data;
+        } catch (e: any) {
+          lastErr = e;
+          console.error('Staff login try failed:', ep, e?.response?.status, e?.response?.data || e?.message);
+          // Continue trying next endpoint even if 401/400, stop only after all fail
+        }
+      }
+      throw lastErr || new Error('Staff login failed');
     } catch (error: any) {
-      console.error('Staff login error:', error.response?.data || error.message);
+      console.error('Staff login error:', error?.response?.status, error?.response?.data || error?.message);
       throw error;
     }
   },
@@ -104,13 +177,90 @@ export const authApi = {
   // Get customer profile
   getProfile: async (token: string) => {
     try {
+      // Skip for non-customer roles to avoid 403 spam if called accidentally
+      try {
+        const decoded: any = decodeJwt(token);
+        const role = decoded?.role || decoded?.['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'];
+        if (role && role.toLowerCase() !== 'customer') {
+          console.log('⏭️ Skipping getProfile: role is not customer ->', role);
+          return {} as any;
+        }
+      } catch {}
+      // Primary endpoint - theo API documentation
+      console.log('🔍 Fetching profile from primary endpoint: /customers/my-profile');
       const res = await api.get('/customers/my-profile', {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
       });
+      console.log('✅ Profile fetched successfully');
       return res.data;
+    } catch (primaryError: any) {
+      console.error('❌ Primary profile endpoint failed:', primaryError.response?.status, primaryError.response?.data || primaryError.message);
+      
+      // Nếu endpoint chính thất bại, thử các endpoint khác
+      const alternativeEndpoints = [
+        '/customers/profile',
+        '/customers/me',
+        '/customers/info',
+      ];
+      
+      for (const endpoint of alternativeEndpoints) {
+        try {
+          console.log(`🔄 Trying alternative endpoint: ${endpoint}`);
+          const res = await api.get(endpoint, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          });
+          console.log(`✅ Profile fetched from alternative endpoint: ${endpoint}`);
+          return res.data;
+        } catch (e: any) {
+          console.log(`❌ Alternative endpoint failed: ${endpoint} - ${e.response?.status}`);
+        }
+      }
+      
+      // Nếu tất cả endpoint đều thất bại, throw lỗi đầu tiên
+      console.error('❌ All profile endpoints failed');
+      throw primaryError;
+    }
+  },
+
+  // Get staff profile (nếu cần)
+  getStaffProfile: async (token: string) => {
+    try {
+      console.log('🔍 Fetching staff profile...');
+      // Thử các endpoint có thể dành cho staff
+      const staffEndpoints = [
+        '/staffs/my-profile',
+        '/staffs/profile',
+        '/staffs/me',
+      ];
+      
+      for (const endpoint of staffEndpoints) {
+        try {
+          console.log(`🔄 Trying staff endpoint: ${endpoint}`);
+          const res = await api.get(endpoint, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          });
+          console.log(`✅ Staff profile fetched from: ${endpoint}`);
+          return res.data;
+        } catch (e: any) {
+          console.log(`❌ Staff endpoint failed: ${endpoint} - ${e.response?.status}`);
+        }
+      }
+      
+      // Nếu không có endpoint nào hoạt động, trả về null
+      console.log('⚠️ No staff profile endpoints available');
+      return null;
     } catch (error: any) {
-      console.error('Get profile error:', error.response?.data || error.message);
-      throw error;
+      console.error('❌ Staff profile error:', error.response?.status, error.response?.data || error.message);
+      return null;
     }
   },
 
@@ -120,12 +270,17 @@ export const authApi = {
     data: { name: string; email: string; phone: string; address: string }
   ) => {
     try {
-      const res = await api.post('/customers/update-profile', data, {
-        headers: { Authorization: `Bearer ${token}` }
+      console.log('🔍 Updating profile via POST /customers/my-profile');
+      const res = await api.post('/customers/my-profile', data, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
+      console.log('✅ Profile updated successfully');
       return res.data;
     } catch (error: any) {
-      console.error('Update profile error:', error.response?.data || error.message);
+      console.error('❌ Update profile error:', error.response?.status, error.response?.data || error.message);
       throw error;
     }
   },
@@ -176,18 +331,7 @@ export const productsApi = {
     } catch (error: any) {
       console.error('❌ Primary products endpoint failed:', error);
       console.error('Error details:', error.response?.data, error.response?.status);
-      
-      // Try alternative endpoints
-      try {
-        console.log('🔄 Trying alternative endpoint: /Product/get-all-products');
-        const res = await api.get('/Product/get-all-products');
-        console.log('✅ Alternative products endpoint working:', res.data);
-        return res.data;
-      } catch (fallbackError: any) {
-        console.error('❌ Alternative products endpoint also failed:', fallbackError);
-        console.error('Fallback error details:', fallbackError.response?.data, fallbackError.response?.status);
-        throw error; // Throw the original error
-      }
+      throw error;
     }
   },
 
@@ -220,13 +364,13 @@ export const productsApi = {
 export const categoriesApi = {
   // Get all categories
   getAllCategories: async () => {
-    const res = await api.get('/Category/get-all-category');
+    const res = await api.get('/categories');
     return res.data;
   },
 
   // Get category by ID
   getCategoryById: async (id: string | number) => {
-    const res = await api.get(`/Category/get-category-by-id/${id}`);
+    const res = await api.get(`/categories/${id}`);
     return res.data;
   },
 };
@@ -235,26 +379,67 @@ export const categoriesApi = {
 export const plansApi = {
   // Get all plans - using the working endpoint from Packages screen
   getAllPlans: async () => {
-    try {
-      console.log('📋 Fetching plans from:', `${BASE_URL}/plans`);
-      const res = await api.get('/plans');
-      console.log('✅ Plans response:', res.data);
+    const cacheKey = 'cached_plans_v1';
+    const tryEndpoints = async (client: typeof api) => {
+      const res = await client.get('/plans');
       return res.data;
-    } catch (error: any) {
-      console.error('❌ Primary plans endpoint failed:', error);
-      console.error('Error details:', error.response?.data, error.response?.status);
-      // Fallback to alternative endpoint
-      try {
-        console.log('🔄 Trying fallback endpoint:', `${BASE_URL}/Plan/get-all-plans`);
-        const res = await api.get('/Plan/get-all-plans');
-        console.log('✅ Fallback plans response:', res.data);
-        return res.data;
-      } catch (fallbackError: any) {
-        console.error('❌ Fallback endpoint also failed:', fallbackError);
-        console.error('Fallback error details:', fallbackError.response?.data, fallbackError.response?.status);
-        throw error;
+    };
+
+    // Iterate alternative base URLs with limited retries for 503/network errors
+    let lastErr: any = null;
+    for (const base of ALTERNATIVE_BASE_URLS) {
+      const client = axios.create({ baseURL: base, timeout: 10000 });
+      // copy interceptors behavior minimally: add auth header from AsyncStorage where possible
+      client.interceptors.request.use(async (config) => {
+        try {
+          const token = await AsyncStorage.getItem('token');
+          if (token && !config.headers?.Authorization) {
+            (config.headers as any).Authorization = `Bearer ${token}`;
+          }
+        } catch {}
+        return config;
+      });
+
+      const maxRetries = 2;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`📋 Fetching plans from: ${base} (attempt ${attempt + 1})`);
+          const data = await tryEndpoints(client as any);
+          // Cache and return
+          try {
+            await AsyncStorage.setItem(
+              cacheKey,
+              JSON.stringify({ ts: Date.now(), data })
+            );
+          } catch {}
+          console.log('✅ Plans fetched');
+          return data;
+        } catch (err: any) {
+          lastErr = err;
+          const status = err?.response?.status;
+          const isRetryable = status === 503 || status === 502 || status === 504 || err?.code === 'ECONNABORTED' || err?.message?.includes('Network');
+          console.error('❌ Plans fetch failed:', status, err?.message);
+          if (attempt < maxRetries && isRetryable) {
+            const backoffMs = 400 * Math.pow(2, attempt);
+            await new Promise(r => setTimeout(r, backoffMs));
+            continue;
+          }
+          break;
+        }
       }
     }
+
+    // As a last resort, return cached data if available
+    try {
+      const cached = await AsyncStorage.getItem('cached_plans_v1');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        console.log('♻️ Using cached plans');
+        return parsed.data;
+      }
+    } catch {}
+
+    throw lastErr || new Error('Unable to fetch plans');
   },
 
   // Get plan by ID
@@ -381,20 +566,30 @@ export const staffApi = {
 
 // ===== NOTIFICATIONS API =====
 export const notificationsApi = {
-  // Get user notifications
-  getUserNotifications: async (token: string) => {
-    const res = await api.get('/notifications/user', {
-      headers: { Authorization: `Bearer ${token}` }
+  // Get all notifications of logged-in user
+  getNotifications: async (token: string) => {
+    const res = await api.get('/notifications', {
+      headers: { Authorization: `Bearer ${token}`, Accept: '*/*' },
     });
     return res.data;
   },
+};
 
-  // Mark notification as read
-  markAsRead: async (notificationId: string, token: string) => {
-    const res = await api.put(`/notifications/${notificationId}/read`, {}, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    return res.data;
+// ===== DEVICE / FCM API =====
+// Device/FCM API removed per user's request
+
+// ===== REDEEMS API (STAFF FLOW) =====
+export const redeemsApi = {
+  // Staff scan QR (phone) to get customer's subscriptions
+  scanQr: async (phone: string) => {
+    const res = await api.post('/redeems/scan-qr', { phone });
+    return res.data; // array of subscriptions
+  },
+
+  // Staff redeem (checkout)
+  redeem: async (subscriptionId: number, quantity: number = 1) => {
+    const res = await api.post('/redeems/redeem', { subscriptionId, quantity });
+    return res.data; // { success, message, redeemedAt, planName, productName, quantity }
   },
 };
 
@@ -441,6 +636,7 @@ export default {
   orders: ordersApi,
   staff: staffApi,
   notifications: notificationsApi,
+  redeems: redeemsApi,
   wallet: walletApi,
   contact: contactApi,
 };

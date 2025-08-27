@@ -5,6 +5,7 @@ import ProductCard from '../../components/ProductCard';
 import { ArrowLeft } from 'lucide-react-native';
 import { productsApi } from '../../services/api';
 
+// Import Product interface from api.ts
 export interface Product {
   productId: number;
   category: string;
@@ -67,7 +68,7 @@ const MenuScreen = () => {
         data={filteredProducts}
         keyExtractor={item => item.productId.toString()}
         renderItem={({ item }) => <ProductCard product={item} />}
-        contentContainerStyle={{ paddingBottom: 32 }}
+        contentContainerStyle={{ paddingTop: 4, paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>
@@ -76,15 +77,15 @@ const MenuScreen = () => {
 
 const styles = StyleSheet.create({
   searchBarWrap: {
-    paddingHorizontal: 4,
-    marginBottom: 10,
-    marginTop: 2,
+    paddingHorizontal: 0,
+    marginTop: 8,
+    marginBottom: 12,
   },
   searchBar: {
     backgroundColor: '#f8f4f0',
     borderRadius: 16,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    height: 44,
     fontSize: 16,
     color: '#4E342E',
     borderWidth: 1,
@@ -95,26 +96,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
     marginTop: 0,
-    paddingHorizontal: 2,
-    justifyContent: 'center',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || 36 : 36, // Extra top padding for status bar
+    paddingHorizontal: 0,
+    justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || 36 : 36,
   },
   backButton: {
     paddingHorizontal: 10,
     paddingVertical: 7,
     backgroundColor: '#8D5B3F',
     borderRadius: 18,
-    marginRight: 8,
     shadowColor: '#8D5B3F',
     shadowOpacity: 0.18,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 3,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   titleWrapper: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: -36, // Compensate for back button width to center title
   },
   container: {
     flex: 1,

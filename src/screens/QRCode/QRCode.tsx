@@ -1,34 +1,59 @@
 import * as React from 'react';
 import { useContext, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Modal, FlatList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Calendar, Coffee, CreditCard, ArrowLeft } from 'lucide-react-native';
+import { Calendar, Coffee, CreditCard, ChevronDown } from 'lucide-react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { AuthContext } from '../../components/AuthProvider';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { subscriptionsApi } from '../../services/api';
+import { getProfile as getProfileApi } from '../../services/authApi';
+
+const formatDate = (d?: Date | string | number) => {
+  if (!d) return '';
+  const date = d instanceof Date ? d : new Date(d);
+  const dd = `${date.getDate()}`.padStart(2, '0');
+  const mm = `${date.getMonth() + 1}`.padStart(2, '0');
+  const yyyy = date.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+};
 
 const QRCodeScreen: React.FC = () => {
   const auth = useContext(AuthContext);
   const [phone, setPhone] = useState('');
+  const [subs, setSubs] = useState<any[]>([]);
+  const [selectedSub, setSelectedSub] = useState<any | null>(null);
+  const [daysLeft, setDaysLeft] = useState<number | null>(null);
+  const [endDate, setEndDate] = useState<string>('');
+  const [dropdownVisible, setDropdownVisible] = useState(false);
   const windowWidth = Dimensions.get('window').width;
-  const cardWidth = Math.min(windowWidth * 0.92, 380); // tăng nhẹ chiều rộng cho card
+  const cardWidth = Math.min(windowWidth * 0.92, 380);
 
   useEffect(() => {
     const getProfilePhone = async () => {
       try {
         const userData = await SecureStore.getItemAsync('user');
-        if (userData) {
-          const profile = JSON.parse(userData);
-          if (profile.phone) {
-            setPhone(profile.phone);
-            return;
+        let profile = userData ? JSON.parse(userData) : null;
+        let foundPhone = profile?.phone || auth?.user?.phone || '';
+        if (!foundPhone) {
+          // Thử gọi API profile để lấy số điện thoại nếu chưa có
+          const token = auth?.user?.token || (await AsyncStorage.getItem('token')) || profile?.token || '';
+          if (token) {
+            try {
+              const p = await getProfileApi(token);
+              const phoneFromApi = p?.phone || p?.data?.phone || p?.phoneNumber || '';
+              if (phoneFromApi) {
+                foundPhone = phoneFromApi;
+                // cập nhật lại SecureStore để lần sau lấy nhanh hơn
+                await SecureStore.setItemAsync('user', JSON.stringify({ ...(profile || {}), ...(auth?.user || {}), phone: phoneFromApi }));
+              }
+            } catch {
+              // ignore
+            }
           }
         }
-        if (auth?.user?.phone) {
-          setPhone(auth.user.phone);
-        } else {
-          setPhone('No phone');
-        }
+        setPhone(foundPhone || 'No phone');
       } catch {
         setPhone('No phone');
       }
@@ -36,31 +61,133 @@ const QRCodeScreen: React.FC = () => {
     getProfilePhone();
   }, [auth?.user]);
 
+  useEffect(() => {
+    const fetchSubscriptions = async () => {
+      try {
+        const userData = await SecureStore.getItemAsync('user');
+        const parsed = userData ? JSON.parse(userData) : null;
+        const token = auth?.user?.token || parsed?.token || '';
+        if (!token) { setSubs([]); setSelectedSub(null); return; }
+        const data = await subscriptionsApi.getMySubscriptions(token);
+        const list = (Array.isArray(data) ? data : data?.data || []) as any[];
+        // Chỉ gói đang hoạt động
+        const active = list.filter((s: any) => `${s.status}`.toLowerCase() === 'active');
+        setSubs(active);
+        setSelectedSub(active?.[0] || null);
+      } catch (e) {
+        setSubs([]);
+        setSelectedSub(null);
+      }
+    };
+    fetchSubscriptions();
+  }, [auth?.user]);
+
+  useEffect(() => {
+    const computeDaysLeft = async () => {
+      if (!selectedSub) { setDaysLeft(null); setEndDate(''); return; }
+
+      // Xác định mốc bắt đầu (ngày thanh toán/bắt đầu)
+      const baseRaw = selectedSub.paidAt || selectedSub.paymentDate || selectedSub.startDate || selectedSub.createdAt || selectedSub.created_at;
+      const baseDate = baseRaw ? new Date(baseRaw) : new Date();
+
+      // Xác định ngày kết thúc: ưu tiên endDate từ API, nếu không thì +30 ngày theo yêu cầu
+      let end = selectedSub.endDate ? new Date(selectedSub.endDate) : new Date(baseDate.getTime());
+      if (!selectedSub.endDate) {
+        end.setDate(end.getDate() + 30);
+      }
+
+      // Tính số ngày còn lại theo lịch: lấy đầu ngày của end - đầu ngày hôm nay
+      const dayMs = 1000 * 60 * 60 * 24;
+      const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+      const startOfEnd = new Date(end); startOfEnd.setHours(0,0,0,0);
+      let d = Math.ceil((startOfEnd.getTime() - startOfToday.getTime()) / dayMs);
+
+      setDaysLeft(d > 0 ? d : 0);
+      setEndDate(formatDate(end));
+    };
+    computeDaysLeft();
+  }, [selectedSub]);
+
+  useEffect(() => {
+    // Khi user thay đổi (đặc biệt là logout), reset các state liên quan
+    const syncOnAuthChange = async () => {
+      const hasUser = !!auth?.user;
+      if (!hasUser) {
+        setSubs([]);
+        setSelectedSub(null);
+        setDaysLeft(null);
+        setEndDate('');
+        setPhone('No phone');
+        return;
+      }
+    };
+    syncOnAuthChange();
+  }, [auth?.user]);
+
+  const renderDropdown = () => (
+    <Modal visible={dropdownVisible} transparent animationType="fade">
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.2)', justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ backgroundColor: '#fff', width: '86%', borderRadius: 16, padding: 12 }}>
+          <Text style={{ fontWeight: '700', color: '#4E342E', fontSize: 16, marginBottom: 8 }}>Chọn gói đã thanh toán</Text>
+          <FlatList
+            data={subs}
+            keyExtractor={(_, idx) => String(idx)}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EEE' }}
+                onPress={() => { setSelectedSub(item); setDropdownVisible(false); }}
+              >
+                <Text style={{ color: '#4E342E', fontWeight: '600' }}>{item.planName || item.plan?.name || 'Gói'}</Text>
+                <Text style={{ color: '#6B7280', fontSize: 12 }}>Thanh toán: {String(item.paidAt || item.paymentDate || item.startDate || item.createdAt || '').toString()}</Text>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={<Text style={{ paddingVertical: 12, color: '#6B7280' }}>Không có gói đã thanh toán</Text>}
+          />
+          <TouchableOpacity style={{ alignSelf: 'flex-end', paddingVertical: 10 }} onPress={() => setDropdownVisible(false)}>
+            <Text style={{ color: '#4E342E', fontWeight: '700' }}>Đóng</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const hasActive = !!selectedSub;
+  const planLabel = hasActive ? (selectedSub?.planName || selectedSub?.plan?.name || 'Gói của bạn') : 'Chưa có gói hoạt động';
+
   return (
     <View style={styles.overlay}>
-      {/* Header BrewPass icon and text, moved down and larger */}
       <View style={styles.headerIconWrap}>
         <Coffee size={32} color="#B08968" style={{ marginRight: 10 }} />
         <Text style={styles.headerTitle}>Thẻ Thành Viên</Text>
       </View>
 
       <View style={styles.centerContent}>
-        {/* Small rounded title card */}
         <LinearGradient
           colors={["#D6B59F", "#B17F60", "#8D5B3F"]}
           start={{ x: 0.0, y: 1.0 }}
           end={{ x: 0.0, y: 0.0 }}
           style={[styles.titleCard, { width: cardWidth }]}
         >
-          <Text style={styles.cardTitle}>Gói Cà Phê Premium</Text>
-          <Text style={styles.plainRemaining}>Còn lại: 15 ly</Text>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => (subs?.length > 1 ? setDropdownVisible(true) : undefined)}
+            style={styles.planChip}
+          >
+            <Text style={styles.planChipText} numberOfLines={1}>{planLabel}</Text>
+            {subs?.length > 1 && <ChevronDown size={16} color="#fff" style={{ marginLeft: 6 }} />}
+          </TouchableOpacity>
+
+          {daysLeft !== null && (
+            <View style={styles.daysBadgeWrap}>
+              <Text style={styles.daysBadgeText}>Số ngày còn lại: {daysLeft} ngày</Text>
+              {!!endDate && <Text style={styles.daysSubText}>Hết hạn: {endDate}</Text>}
+            </View>
+          )}
         </LinearGradient>
 
-        {/* QR block: moved down from title card */}
         <View style={[styles.qrShadowWrap, { width: cardWidth }]}> 
           <View style={styles.qrOuter}> 
             <View style={styles.qrInnerBox}>
-              {/* corner markers (subtle) */}
               <View style={[styles.corner, styles.cornerTL]} />
               <View style={[styles.corner, styles.cornerTR]} />
               <View style={[styles.corner, styles.cornerBL]} />
@@ -69,8 +196,17 @@ const QRCodeScreen: React.FC = () => {
               {phone && phone !== '' && phone !== 'No phone' ? (
                 <View style={styles.qrInnerWrap}>
                   <QRCode
-                    value={phone}
-                    size={150} // Increased QR code size
+                    value={(() => {
+                      if (!phone || phone === 'No phone') return '' as any;
+                      try {
+                        const payload: any = { phone };
+                        if (selectedSub?.subscriptionId) payload.subscriptionId = selectedSub.subscriptionId;
+                        return JSON.stringify(payload);
+                      } catch {
+                        return phone;
+                      }
+                    })()}
+                    size={150}
                     backgroundColor="#fff"
                     color="#000000"
                     quietZone={8}
@@ -81,7 +217,7 @@ const QRCodeScreen: React.FC = () => {
                 </View>
               ) : (
                 <Text style={{ color: '#B08968', fontWeight: '700', fontSize: 16 }}>
-                  Đăng nhập để sử dụng!
+                 Vui lòng đăng nhập!
                 </Text>
               )}
             </View>
@@ -90,7 +226,6 @@ const QRCodeScreen: React.FC = () => {
           <Text style={styles.qrLabel}>Mã QR</Text>
         </View>
 
-        {/* Action buttons row */}
         <View style={styles.actionRow}>
           <View style={styles.actionButtonWrap}>
             <TouchableOpacity style={[styles.actionButton, styles.actionButtonLeft]}>
@@ -114,6 +249,8 @@ const QRCodeScreen: React.FC = () => {
           </View>
         </View>
       </View>
+
+      {renderDropdown()}
     </View>
   );
 };
@@ -122,27 +259,6 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 38,
-    marginBottom: 6,
-    width: '100%',
-    position: 'absolute', // Make it absolute positioned
-    top: 0,               // Position at the top
-    zIndex: 10,           // Ensure it stays on top
-  },
-  backButton: {
-    position: 'absolute',
-    left: 14,
-    top: 6,
-    width: 36,
-    height: 36,
-    zIndex: 2,
-    justifyContent: 'center',
     alignItems: 'center',
   },
   headerIconWrap: {
@@ -162,70 +278,62 @@ const styles = StyleSheet.create({
   centerContent: {
     alignItems: 'center',
     width: '100%',
-    paddingTop: 0, // Remove padding as we're using justifyContent
+    paddingTop: 0,
     flex: 1,
-    justifyContent: 'center', // Center vertically in the available space
+    justifyContent: 'center',
   },
-
-  /* title card */
   titleCard: {
-    borderRadius: 32, // bo tròn nhiều hơn
-    paddingTop: 32,
-    paddingBottom: 60, // vừa đủ để QR chồng lên
-    paddingHorizontal: 32,
+    borderRadius: 28,
+    paddingTop: 20,
+    paddingBottom: 56,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    marginTop: 0,
     shadowColor: '#8D5B3F',
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 12,
+    elevation: 10,
     zIndex: 1,
-    height: 180, // card lớn hơn, giống ảnh
+    minHeight: 150,
   },
-  cardTitle: {
-    fontSize: 22, // Larger font
-    fontWeight: '600', // Slightly bolder
-    color: '#fff',
-    textAlign: 'center',
-    marginTop: 0,
-  },
-  quotaRow: {
+  planChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
+    maxWidth: '94%',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
   },
-  cardSubtitle: {
-    fontSize: 13,
+  planChipText: {
     color: '#fff',
+    fontWeight: '700',
+  },
+  daysBadgeWrap: {
+    marginTop: 10,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)'
+  },
+  daysBadgeText: {
+    color: '#fff',
+    fontWeight: '700',
     textAlign: 'center',
   },
-  plainRemaining: {
-    fontSize: 16,
-    color: '#fff',
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 35, // Add significant bottom margin to push text up in card
-    opacity: 0.9,
-  },
-  badgeContainer: {
-    backgroundColor: '#2AB27B',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    marginLeft: 6,
-  },
-  badgeText: {
-    fontWeight: '600',
-    color: '#fff',
+  daysSubText: {
+    color: 'rgba(255,255,255,0.92)',
     fontSize: 12,
+    marginTop: 2,
+    textAlign: 'center',
   },
-
-  /* QR outer frame */
   qrShadowWrap: {
     alignItems: 'center',
-    marginTop: -50, // QR chồng lên dưới card, lên trên một chút
+    marginTop: -46,
     marginBottom: 5,
     zIndex: 2,
   },
@@ -238,7 +346,7 @@ const styles = StyleSheet.create({
   qrInnerBox: {
     width: 200,
     height: 200,
-    borderRadius: 24,
+    borderRadius: 22,
     backgroundColor: '#fff',
     padding: 12,
     alignItems: 'center',
@@ -261,26 +369,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 30, // Larger center icon
-    height: 30, // Larger center icon
+    width: 30,
+    height: 30,
     borderRadius: 15,
   },
   xMark: {
-    fontSize: 24, // Larger X
+    fontSize: 24,
     fontWeight: '300',
     color: '#2AB27B',
     lineHeight: 24,
   },
   qrLabel: {
-    fontSize: 14, // Larger label text
+    fontSize: 14,
     color: '#4E342E',
     fontWeight: '500',
     textAlign: 'center',
-    marginTop: 12, // More spacing
+    marginTop: 12,
     marginBottom: 12,
   },
-
-  /* corner markers */
   corner: {
     position: 'absolute',
     width: 28,
@@ -316,14 +422,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 4,
     borderBottomRightRadius: 10,
   },
-
-  /* actions */
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'space-evenly',
     alignItems: 'center',
     width: '100%',
-    marginTop: 20, // Less space needed since QR is lower now
+    marginTop: 20,
     marginBottom: 15,
     paddingHorizontal: 25,
   },
@@ -334,8 +438,8 @@ const styles = StyleSheet.create({
   actionButton: {
     backgroundColor: '#fff',
     borderRadius: 60,
-    width: 60, // Larger buttons
-    height: 60, // Larger buttons
+    width: 60,
+    height: 60,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -345,7 +449,7 @@ const styles = StyleSheet.create({
     elevation: 2,
     borderWidth: 1,
     borderColor: '#E5D3B3',
-    marginBottom: 8, // More spacing below
+    marginBottom: 8,
   },
   actionButtonLeft: {
     borderColor: '#2AB27B',
@@ -360,10 +464,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   actionText: {
-    fontSize: 12, // Larger text
-    marginTop: 4, // More spacing
+    fontSize: 12,
+    marginTop: 4,
     textAlign: 'center',
-    fontWeight: '500', // Slightly bolder
+    fontWeight: '500',
     maxWidth: 80,
   },
   actionTextLeft: {

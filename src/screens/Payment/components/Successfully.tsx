@@ -5,10 +5,11 @@ import { Colors } from "../../../constants/colors";
 interface SuccessfullyProps {
   visible: boolean;
   onClose: () => void;
-  navigation: any;
+  navigation?: any;
+  onGoHome?: () => void;
 }
 
-export default function Successfully({ visible, onClose, navigation }: SuccessfullyProps) {
+export default function Successfully({ visible, onClose, navigation, onGoHome }: SuccessfullyProps) {
   return (
     <Modal
       visible={visible}
@@ -28,7 +29,11 @@ export default function Successfully({ visible, onClose, navigation }: Successfu
             style={styles.homeBtn}
             onPress={() => {
               onClose();
-              navigation.navigate("MainTabs", { screen: "Home" });
+              if (onGoHome) {
+                onGoHome();
+              } else if (navigation) {
+                navigation.navigate("MainTabs", { screen: "Home" });
+              }
             }}
           >
             <Text style={styles.homeBtnText}>Về trang chủ</Text>

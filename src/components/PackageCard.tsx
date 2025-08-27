@@ -6,24 +6,32 @@ import { Package } from '../types';
 interface PackageCardProps {
   package: Package;
   onSelect: (pkg: Package) => void;
+  onCardPress?: (pkg: Package) => void;
   successCount?: number;
 }
 
-export const PackageCard: React.FC<PackageCardProps> = ({ package: pkg, onSelect, successCount }) => {
+export const PackageCard: React.FC<PackageCardProps> = ({ package: pkg, onSelect, onCardPress, successCount }) => {
   // fallback for API data
   const benefits = Array.isArray(pkg.benefits) ? pkg.benefits : [];
   const imageUrl = pkg.image || pkg.imageUrl || '';
   const duration = pkg.duration || pkg.durationDays || '';
   const cupsPerDay = pkg.cupsPerDay || pkg.dailyQuota || '';
 
+  const handleCardPress = () => {
+    if (onCardPress) {
+      onCardPress(pkg);
+    }
+  };
+
   return (
     <TouchableOpacity 
       style={[styles.card, pkg.popular && styles.popularCard]} 
-      onPress={() => onSelect(pkg)}
+      onPress={handleCardPress}
       activeOpacity={0.95}
+      accessibilityLabel={`Gói ${pkg.name}`}
     >
       {pkg.popular && (
-        <View style={styles.popularBadge}>
+        <View style={styles.popularBadge} accessibilityLabel="Gói phổ biến nhất">
           <Text style={styles.popularText}>PHỔ BIẾN NHẤT</Text>
         </View>
       )}
@@ -41,7 +49,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ package: pkg, onSelect
         </View>
 
         <Text style={styles.description}>
-          {cupsPerDay ? `${cupsPerDay} ly cà phê mỗi ngày` : pkg.description}
+          {cupsPerDay ? `${cupsPerDay} ly cà phê mỗi ngày` : (pkg.description || '')}
         </Text>
 
         {benefits.length > 0 && (
@@ -54,11 +62,14 @@ export const PackageCard: React.FC<PackageCardProps> = ({ package: pkg, onSelect
           </View>
         )}
 
-        {successCount && successCount > 0 && (
-          <Text style={{ textAlign: 'center', marginBottom: 8, color: Colors.primary }}>
-            Đã đăng ký thành công: {successCount} lần
-          </Text>
-        )}
+        {successCount && successCount > 0 ? (
+          <View style={styles.successBadge}>
+            <Text style={styles.successText}>
+              <Text>Đã đăng ký thành công: </Text>
+              <Text style={{ fontWeight: 'bold' }}>{successCount} lần</Text>
+            </Text>
+          </View>
+        ) : null}
 
         <TouchableOpacity 
           style={styles.selectButton}
@@ -117,6 +128,7 @@ const styles = StyleSheet.create({
   priceContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
+    justifyContent: 'flex-start',
     marginBottom: 8,
   },
   price: {
@@ -155,5 +167,22 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 14,
     fontFamily: 'Poppins-SemiBold',
+  },
+  successBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: '#e6f9ed',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    marginBottom: 12,
+    marginTop: 6,
+  },
+  successText: {
+    color: Colors.success,
+    fontSize: 14,
+    fontFamily: 'Poppins-SemiBold',
+    textAlign: 'center',
   },
 });
